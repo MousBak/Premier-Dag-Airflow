@@ -19,6 +19,18 @@ EXPECTED_DAG_IDS = [
     "tp2a_ingestion_meteo",
     "tp2b_pipeline_postgresql",
     "tp3_data_lake",
+    "weather_data_pipeline",
+]
+
+# Production DAG — additional requirements
+PRODUCTION_DAG_ID = "weather_data_pipeline"
+EXPECTED_TASK_IDS = [
+    "get_cities",
+    "extract_city",
+    "store_bronze",
+    "transform_silver",
+    "load_gold",
+    "write_audit",
 ]
 
 
@@ -95,4 +107,33 @@ def test_all_tasks_have_retries(dag_bag, dag_id):
     for task in dag.tasks:
         assert task.retries >= 1, (
             f"Task '{task.task_id}' in DAG '{dag_id}' has retries=0"
+        )
+
+
+# ── Production DAG specific tests ─────────────────────────────────────────
+
+@pytest.mark.parametrize("task_id", EXPECTED_TASK_IDS)
+def test_production_dag_has_expected_tasks(dag_bag, task_id):
+    """Production DAG must contain all 6 expected task IDs."""
+    dag = dag_bag.dags[PRODUCTION_DAG_ID]
+    task_ids = [t.task_id for t in dag.tasks]
+    assert task_id in task_ids, (
+        f"Task '{task_id}' not found in {PRODUCTION_DAG_ID}. Found: {task_ids}"
+    )
+
+
+def test_production_dag_has_schedule(dag_bag):
+    """Production DAG must have a real schedule (not None) for automated runs."""
+    dag = dag_bag.dags[PRODUCTION_DAG_ID]
+    assert dag.schedule_interval is not None, (
+        f"{PRODUCTION_DAG_ID} has no schedule — set schedule_interval for production"
+    )
+
+
+def test_production_dag_has_exponential_backoff(dag_bag):
+    """Retries should use exponential backoff to avoid hammering external APIs."""
+    dag = dag_bag.dags[PRODUCTION_DAG_ID]
+    for task in dag.tasks:
+        assert task.retry_exponential_backoff, (
+            f"Task '{task.task_id}' should have retry_exponential_backoff=True"
         )
