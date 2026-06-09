@@ -1,0 +1,272 @@
+{
+  "title": "Weather Data Platform",
+  "uid": "weather-platform",
+  "timezone": "Europe/Paris",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["meteo", "airflow", "portfolio"],
+  "time": { "from": "now-7d", "to": "now" },
+  "refresh": "5m",
+  "graphTooltip": 1,
+  "annotations": { "list": [] },
+  "templating": { "list": [] },
+  "links": [],
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Enregistrements en base",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT COUNT(*) AS \"Total\" FROM meteo_journaliere",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Dernière ingestion",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT MAX(insere_le) AS \"Dernière MAJ\" FROM meteo_journaliere",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "dateTimeFromNow",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }]
+          }
+        },
+        "overrides": []
+      }
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Temp max du dernier relevé",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT MAX(temp_max_c) AS \"°C\" FROM meteo_journaliere WHERE date = (SELECT MAX(date) FROM meteo_journaliere)",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue",   "value": null },
+              { "color": "green",  "value": 15   },
+              { "color": "yellow", "value": 25   },
+              { "color": "orange", "value": 30   },
+              { "color": "red",    "value": 35   }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Température moyenne journalière par ville (°C)",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 9 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT date::timestamp AS \"time\", MAX(CASE WHEN ville = 'Paris'     THEN temp_moyenne_c END) AS \"Paris\", MAX(CASE WHEN ville = 'Lyon'      THEN temp_moyenne_c END) AS \"Lyon\", MAX(CASE WHEN ville = 'Marseille' THEN temp_moyenne_c END) AS \"Marseille\", MAX(CASE WHEN ville = 'Bordeaux'  THEN temp_moyenne_c END) AS \"Bordeaux\" FROM meteo_journaliere WHERE $__timeFilter(date::timestamp) GROUP BY date ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max", "min"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true,
+            "pointSize": 6,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Précipitations journalières par ville (mm)",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT date::text AS \"Jour\", MAX(CASE WHEN ville = 'Paris'     THEN precipitation_mm END) AS \"Paris\", MAX(CASE WHEN ville = 'Lyon'      THEN precipitation_mm END) AS \"Lyon\", MAX(CASE WHEN ville = 'Marseille' THEN precipitation_mm END) AS \"Marseille\", MAX(CASE WHEN ville = 'Bordeaux'  THEN precipitation_mm END) AS \"Bordeaux\" FROM meteo_journaliere WHERE $__timeFilter(date::timestamp) GROUP BY date ORDER BY 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "auto",
+        "xTickLabelRotation": -30,
+        "barWidth": 0.85,
+        "groupWidth": 0.7,
+        "stacking": "none",
+        "showValue": "auto",
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "mm",
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 80 }
+        },
+        "overrides": []
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Vitesse max du vent par ville (km/h)",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT date::timestamp AS \"time\", MAX(CASE WHEN ville = 'Paris'     THEN vent_max_kmh END) AS \"Paris\", MAX(CASE WHEN ville = 'Lyon'      THEN vent_max_kmh END) AS \"Lyon\", MAX(CASE WHEN ville = 'Marseille' THEN vent_max_kmh END) AS \"Marseille\", MAX(CASE WHEN ville = 'Bordeaux'  THEN vent_max_kmh END) AS \"Bordeaux\" FROM meteo_journaliere WHERE $__timeFilter(date::timestamp) GROUP BY date ORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "velocitykmh",
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "spanNulls": true,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Suivi des ingestions — pipeline Airflow",
+      "gridPos": { "x": 0, "y": 21, "w": 24, "h": 7 },
+      "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "meteo-postgres" },
+          "rawSql": "SELECT fin_ingestion AS \"Heure\", dag_id AS \"DAG\", nb_lignes AS \"Lignes\", statut AS \"Statut\", COALESCE(message, '—') AS \"Message\" FROM suivi_ingestion ORDER BY fin_ingestion DESC LIMIT 15",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Heure", "desc": true }],
+        "footer": { "show": false }
+      },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Statut" },
+            "properties": [
+              { "id": "custom.displayMode", "value": "color-background" },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "success": { "color": "green",  "index": 0 } } },
+                  { "type": "value", "options": { "failed":  { "color": "red",    "index": 1 } } },
+                  { "type": "value", "options": { "running": { "color": "yellow", "index": 2 } } }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Lignes" },
+            "properties": [
+              { "id": "custom.width", "value": 80 },
+              { "id": "custom.align", "value": "center" }
+            ]
+          }
+        ]
+      }
+    }
+
+  ]
+}

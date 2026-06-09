@@ -32,6 +32,7 @@ help:
 	@echo "  UIs (Docker mode)"
 	@echo "    Airflow  : http://localhost:8080  (admin / admin)"
 	@echo "    MinIO    : http://localhost:9001  (minioadmin / minioadmin)"
+	@echo "    Grafana  : http://localhost:3000  (admin / admin)"
 	@echo "    Flower   : http://localhost:5555"
 	@echo ""
 
@@ -84,6 +85,7 @@ docker-up:
 	@echo "  Airflow  : http://localhost:8080  (admin / admin)"
 	@echo "  MinIO    : http://localhost:9001  (minioadmin / minioadmin)"
 	@echo "  Flower   : http://localhost:5555"
+	@echo "  Grafana  : http://localhost:3000  (admin / admin)"
 
 docker-down:
 	$(COMPOSE) down

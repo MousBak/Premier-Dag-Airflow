@@ -8,6 +8,7 @@
 ![MinIO](https://img.shields.io/badge/MinIO-S3%20Compatible-C72E49?logo=minio&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt-1.x-FF694B?logo=dbt&logoColor=white)
 ![Tests](https://img.shields.io/badge/Tests-73%20passed-brightgreen)
+![Grafana](https://img.shields.io/badge/Grafana-10.4-F46800?logo=grafana&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
 > Pipeline de données météo production-ready — orchestration Airflow, architecture Medallion
@@ -25,14 +26,15 @@
 6. [Tests automatisés](#6-tests-automatisés)
 7. [Modèles dbt](#7-modèles-dbt)
 8. [CI/CD — GitHub Actions](#8-cicd--github-actions)
-9. [Concepts clés Airflow](#9-concepts-clés-airflow)
-10. [TP2 — Premier DAG Airflow](#10-tp2--premier-dag-airflow)
-11. [TP2A — Ingestion multi-villes](#11-tp2a--ingestion-multi-villes)
-12. [TP2B — Pipeline complet vers PostgreSQL](#12-tp2b--pipeline-complet-vers-postgresql)
-13. [TP3 — Data Lake Medallion](#13-tp3--data-lake-medallion)
-14. [Installation locale](#14-installation-locale)
-15. [Guide de vérification](#15-guide-de-vérification)
-16. [Auteur](#16-auteur)
+9. [Dashboard Grafana](#9-dashboard-grafana)
+10. [Concepts clés Airflow](#10-concepts-clés-airflow)
+11. [TP2 — Premier DAG Airflow](#11-tp2--premier-dag-airflow)
+12. [TP2A — Ingestion multi-villes](#12-tp2a--ingestion-multi-villes)
+13. [TP2B — Pipeline complet vers PostgreSQL](#13-tp2b--pipeline-complet-vers-postgresql)
+14. [TP3 — Data Lake Medallion](#14-tp3--data-lake-medallion)
+15. [Installation locale](#15-installation-locale)
+16. [Guide de vérification](#16-guide-de-vérification)
+17. [Auteur](#17-auteur)
 
 ---
 
@@ -53,7 +55,7 @@ puis produit des modèles analytiques via dbt.
 | **TP2B** | Chargement PostgreSQL, Variables Airflow, traçabilité |
 | **TP3** | Architecture Medallion : Bronze (MinIO) → Silver (MinIO) → Gold (PostgreSQL) |
 | **Pro 1** | Structure professionnelle : `dags/common/`, `tests/`, `docker/`, `sql/migrations/`, `Makefile` |
-| **Pro 2** | Docker Compose complet : Airflow + PostgreSQL + MinIO + Redis + Flower |
+| **Pro 2** | Docker Compose complet : Airflow + PostgreSQL + MinIO + Redis + Flower + Grafana |
 | **Pro 3** | 73 tests pytest : unit, integration, DAG integrity |
 | **Pro 4** | Dynamic Task Mapping : une tâche Airflow par ville, parallèles |
 | **Pro 5** | dbt : staging + 2 marts analytiques + tests de qualité |
@@ -74,6 +76,7 @@ puis produit des modèles analytiques via dbt.
 | **MinIO** | latest | Stockage objet S3-compatible — couches Bronze et Silver |
 | **dbt** | 1.x | Transformations SQL analytiques sur la couche Gold |
 | **Redis** | 7 | Broker de messages pour CeleryExecutor (parallélisme réel) |
+| **Grafana** | 10.4 | Dashboard météo — visualisation temps réel depuis PostgreSQL |
 | **Docker / Compose** | — | Stack complète en une commande |
 | **boto3** | — | Client Python pour MinIO/S3 |
 | **psycopg2** | — | Connecteur Python → PostgreSQL |
@@ -127,9 +130,15 @@ weather-data-platform/
 │       └── test_dag_integrity.py       # 44 tests — import, structure, config
 │
 ├── docker/
-│   ├── docker-compose.yml              # Stack : Airflow + PG + MinIO + Redis + Flower
+│   ├── docker-compose.yml              # Stack : Airflow + PG + MinIO + Redis + Flower + Grafana
 │   ├── Dockerfile                      # Image Airflow custom
-│   └── init-db.sh                      # Crée meteo_db au démarrage PostgreSQL
+│   ├── init-db.sh                      # Crée meteo_db au démarrage PostgreSQL
+│   └── grafana/
+│       └── provisioning/
+│           ├── datasources/postgres.yml # Auto-configure la connexion PostgreSQL
+│           └── dashboards/
+│               ├── provider.yml        # Chargement automatique des dashboards
+│               └── weather_dashboard.json  # Dashboard météo (7 panels)
 │
 ├── sql/migrations/
 │   ├── 001_init_tables.sql             # Création des tables
@@ -170,6 +179,7 @@ Cette commande démarre automatiquement :
 | Service | URL | Identifiants |
 |---------|-----|-------------|
 | Airflow UI | http://localhost:8080 | admin / admin |
+| **Grafana** | **http://localhost:3000** | **admin / admin** |
 | MinIO Console | http://localhost:9001 | minioadmin / minioadmin |
 | Flower (workers) | http://localhost:5555 | — |
 | PostgreSQL | localhost:5432 | airflow / airflow |
@@ -400,7 +410,39 @@ Onglet **Actions** sur GitHub → chaque commit affiche le statut détaillé de 
 
 ---
 
-## 9. Concepts clés Airflow
+## 9. Dashboard Grafana
+
+Grafana visualise les données météo **en temps réel** depuis PostgreSQL.
+Le dashboard est **provisionné automatiquement** au démarrage de `make docker-up` — aucune configuration manuelle.
+
+### Accès
+
+```
+http://localhost:3000   (admin / admin)
+```
+
+Le dashboard "Weather Data Platform" est chargé par défaut à l'ouverture.
+
+### Panels du dashboard
+
+| Panel | Type | Ce qui est affiché |
+|-------|------|--------------------|
+| Enregistrements en base | Stat | Nombre total de relevés dans PostgreSQL |
+| Dernière ingestion | Stat | Heure du dernier run Airflow (temps relatif) |
+| Temp max du dernier relevé | Stat | Température maximale — couleur selon seuil (bleu < vert < jaune < rouge) |
+| Température moyenne par ville | Time series | Courbe des 4 villes sur 7 jours, avec min/max/moyenne |
+| Précipitations journalières | Bar chart | Barres groupées par ville et par jour |
+| Vitesse max du vent | Time series | Vent max km/h par ville |
+| Suivi des ingestions | Table | 15 derniers runs Airflow — statut coloré (vert/rouge/jaune) |
+
+### Actualisation automatique
+
+Le dashboard se rafraîchit toutes les **5 minutes** — les données du pipeline de 06:00 apparaissent
+automatiquement sans aucune action.
+
+---
+
+## 10. Concepts clés Airflow
 
 ### Qu'est-ce qu'un DAG ?
 
@@ -437,7 +479,7 @@ tache_a >> tache_b >> tache_c  # b démarre après a, c démarre après b
 
 ---
 
-## 10. TP2 — Premier DAG Airflow
+## 11. TP2 — Premier DAG Airflow
 
 ### Objectif
 
@@ -469,7 +511,7 @@ airflow dags test tp2_pipeline_etl_simple
 
 ---
 
-## 11. TP2A — Ingestion multi-villes
+## 12. TP2A — Ingestion multi-villes
 
 ### Objectif
 
@@ -520,7 +562,7 @@ airflow dags test tp2a_ingestion_meteo
 
 ---
 
-## 12. TP2B — Pipeline complet vers PostgreSQL
+## 13. TP2B — Pipeline complet vers PostgreSQL
 
 ### Objectif
 
@@ -591,7 +633,7 @@ airflow dags test tp2b_pipeline_postgresql
 
 ---
 
-## 13. TP3 — Data Lake Medallion
+## 14. TP3 — Data Lake Medallion
 
 ### Architecture
 
@@ -638,7 +680,7 @@ airflow dags test tp3_data_lake
 
 ---
 
-## 14. Installation locale
+## 15. Installation locale
 
 ### Prérequis
 
@@ -679,7 +721,7 @@ make variables
 
 ---
 
-## 15. Guide de vérification
+## 16. Guide de vérification
 
 ```bash
 # Lancer tous les tests
@@ -706,7 +748,7 @@ make dbt-run && make dbt-test
 
 ---
 
-## 16. Auteur
+## 17. Auteur
 
 | | |
 |--|--|
