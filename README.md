@@ -1,6 +1,6 @@
 # Travaux Pratiques Airflow — Bakayoko Moussa
 
-> **Outil** : Apache Airflow 2.9.1 · **API** : Open-Meteo · **BDD** : PostgreSQL 14 · **Langage** : Python 3.12
+> **Outil** : Apache Airflow 2.9.1 · **API** : Open-Meteo · **BDD** : PostgreSQL 14 · **Data Lake** : MinIO · **Langage** : Python 3.12
 
 ## Récapitulatif des TPs
 
@@ -9,6 +9,7 @@
 | **TP2** | Premier DAG Airflow | `tp2_pipeline_etl_simple` | Fichier CSV | ✅ success |
 | **TP2A** | Ingestion API météo multi-villes | `tp2a_ingestion_meteo` | Fichier CSV | ✅ success |
 | **TP2B** | Pipeline complet → PostgreSQL | `tp2b_pipeline_postgresql` | PostgreSQL | ✅ success |
+| **TP3** | Data Lake Medallion (Bronze/Silver/Gold) | `tp3_data_lake` | MinIO + PostgreSQL | ✅ success |
 
 ---
 
@@ -28,20 +29,21 @@ C'est un graphe orienté sans cycle qui représente un workflow : un ensemble de
 ```
 Airflow/
 ├── dags/
-│   ├── tp2_premier_dag.py        # TP2  — Pipeline ETL Paris (1 ville, CSV)
-│   ├── tp2a_ingestion_meteo.py   # TP2A — Ingestion multi-villes (4 villes, CSV)
-│   └── tp2b_pipeline_postgresql.py # TP2B — Pipeline complet vers PostgreSQL
+│   ├── tp2_premier_dag.py          # TP2  — Pipeline ETL Paris (1 ville, CSV)
+│   ├── tp2a_ingestion_meteo.py     # TP2A — Ingestion multi-villes (4 villes, CSV)
+│   ├── tp2b_pipeline_postgresql.py # TP2B — Pipeline complet vers PostgreSQL
+│   └── tp3_data_lake.py            # TP3  — Data Lake Medallion (MinIO + PostgreSQL)
 ├── sql/
-│   └── init_meteo_db.sql         # Script SQL de création des tables
+│   └── init_meteo_db.sql           # Script SQL de création des tables
 ├── data/
-│   ├── meteo_paris_*.csv         # Sorties TP2
-│   └── meteo_villes_*.csv        # Sorties TP2A
-├── logs/                         # Logs générés automatiquement par Airflow
-├── plugins/                      # Plugins personnalisés (vide)
-├── airflow_venv/                 # Environnement Python virtuel
-├── airflow.db                    # Base de données SQLite d'Airflow
-├── docker-compose.yml            # Configuration Docker alternative
-└── README.md                     # Ce fichier
+│   ├── meteo_paris_*.csv           # Sorties TP2
+│   └── meteo_villes_*.csv          # Sorties TP2A
+├── logs/                           # Logs générés automatiquement par Airflow
+├── plugins/                        # Plugins personnalisés (vide)
+├── airflow_venv/                   # Environnement Python virtuel
+├── airflow.db                      # Base de données SQLite d'Airflow
+├── docker-compose.yml              # Configuration Docker (MinIO inclus)
+└── README.md                       # Ce fichier
 ```
 
 ---
@@ -336,6 +338,149 @@ airflow variables set METEO_DB_PASSWORD postgres
 export AIRFLOW_HOME=$(pwd)
 source airflow_venv/bin/activate
 airflow dags test tp2b_pipeline_postgresql
+```
+
+---
+
+---
+
+# TP3 — Data Lake Medallion : API → Bronze → Silver → Gold
+
+## Objectif
+
+Implémenter une **architecture Data Lake Medallion** complète :
+stocker les données brutes dans MinIO, les transformer, les charger dans PostgreSQL.
+Chaque couche a un rôle précis et les données sont traçables à chaque étape.
+
+## Architecture
+
+```
+API Open-Meteo
+      │
+      ▼
+  [BRONZE]  MinIO meteo-bronze/YYYY-MM-DD/<ville>.json  ← JSON brut, aucune modification
+      │
+      ▼
+  [SILVER]  MinIO meteo-silver/YYYY-MM-DD/meteo_villes.csv  ← CSV transformé, champs sélectionnés
+      │
+      ▼
+  [GOLD]    PostgreSQL meteo_journaliere  ← données propres prêtes à l'analyse
+      │
+      ▼
+  suivi_ingestion  ← traçabilité complète (Bronze + Silver + Gold)
+```
+
+## DAG : `tp3_data_lake`
+
+```
+extraire_api ──→ stocker_bronze ──→ transformer_silver ──→ charger_gold ──→ ecrire_suivi
+```
+
+| Tâche | Couche | Rôle |
+|-------|--------|------|
+| `extraire_api` | — | Appelle l'API Open-Meteo pour les 4 villes |
+| `stocker_bronze` | BRONZE | Écrit le JSON brut dans MinIO `meteo-bronze` |
+| `transformer_silver` | SILVER | Produit un CSV propre dans MinIO `meteo-silver` |
+| `charger_gold` | GOLD | Insère les données dans PostgreSQL |
+| `ecrire_suivi` | — | Trace le run avec les chemins Bronze + Silver |
+
+## Pourquoi cette architecture ?
+
+| Couche | Contenu | Intérêt |
+|--------|---------|---------|
+| **Bronze** | JSON brut de l'API | Rejouer le pipeline sans rappeler l'API, audit des données d'origine |
+| **Silver** | CSV transformé | Données utilisables par d'autres pipelines ou outils sans passer par PostgreSQL |
+| **Gold** | Table PostgreSQL | Données optimisées pour les requêtes analytiques et les dashboards |
+
+## Variables Airflow ajoutées pour MinIO
+
+| Variable | Valeur | Description |
+|----------|--------|-------------|
+| `MINIO_ENDPOINT` | `http://localhost:9000` | URL de MinIO |
+| `MINIO_ACCESS_KEY` | `minioadmin` | Clé d'accès |
+| `MINIO_SECRET_KEY` | `minioadmin` | Clé secrète |
+| `MINIO_BUCKET_BRONZE` | `meteo-bronze` | Bucket couche brute |
+| `MINIO_BUCKET_SILVER` | `meteo-silver` | Bucket couche transformée |
+
+## Lancer MinIO
+
+```bash
+docker run -d \
+  --name minio \
+  -p 9000:9000 \
+  -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  -v minio_data:/data \
+  minio/minio server /data --console-address ":9001"
+```
+
+Console MinIO : **http://localhost:9001** — identifiants : `minioadmin` / `minioadmin`
+
+## Créer les buckets
+
+```bash
+source airflow_venv/bin/activate
+python3 - <<'EOF'
+import boto3
+from botocore.client import Config
+s3 = boto3.client("s3", endpoint_url="http://localhost:9000",
+    aws_access_key_id="minioadmin", aws_secret_access_key="minioadmin",
+    config=Config(signature_version="s3v4"))
+s3.create_bucket(Bucket="meteo-bronze")
+s3.create_bucket(Bucket="meteo-silver")
+print("Buckets créés : meteo-bronze, meteo-silver")
+EOF
+```
+
+## Créer les Variables Airflow MinIO
+
+```bash
+export AIRFLOW_HOME=$(pwd)
+source airflow_venv/bin/activate
+airflow variables set MINIO_ENDPOINT http://localhost:9000
+airflow variables set MINIO_ACCESS_KEY minioadmin
+airflow variables set MINIO_SECRET_KEY minioadmin
+airflow variables set MINIO_BUCKET_BRONZE meteo-bronze
+airflow variables set MINIO_BUCKET_SILVER meteo-silver
+```
+
+## Lancer ce DAG
+
+```bash
+export AIRFLOW_HOME=$(pwd)
+source airflow_venv/bin/activate
+airflow dags test tp3_data_lake
+```
+
+## Preuve d'exécution
+
+### Fichiers dans MinIO après un run
+
+```
+meteo-bronze/2026-06-09/bordeaux.json    1302 octets  ← JSON brut
+meteo-bronze/2026-06-09/lyon.json        1308 octets
+meteo-bronze/2026-06-09/marseille.json   1298 octets
+meteo-bronze/2026-06-09/paris.json       1303 octets
+
+meteo-silver/2026-06-09/meteo_villes.csv 1375 octets  ← CSV transformé
+```
+
+### Contenu Gold — PostgreSQL
+
+```
+Bordeaux   7 jours
+Lyon       7 jours
+Marseille  7 jours
+Paris      7 jours
+Total : 28 lignes
+```
+
+### Suivi d'ingestion
+
+```
+[3] tp3_data_lake — 28 lignes — success
+    Bronze: 4 fichiers JSON | Silver: 1 CSV | Gold: 28 lignes PostgreSQL
 ```
 
 ---
