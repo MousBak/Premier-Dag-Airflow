@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "weather-data-platform"
+version = "1.0.0"
+description = "Production-grade weather data pipeline — Airflow, MinIO, PostgreSQL"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "apache-airflow==2.9.1",
+    "certifi",
+    "psycopg2-binary",
+    "boto3",
+    "pandas",
+    "pyarrow",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "flake8>=7.0",
+    "black>=24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.flake8]
+max-line-length = 100
+exclude = ["airflow_venv", "__pycache__", ".git"]

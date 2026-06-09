@@ -1,0 +1,20 @@
+[
+  {
+    "conn_id": "meteo_postgres",
+    "conn_type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "schema": "meteo_db",
+    "login": "postgres",
+    "password": "CHANGE_ME",
+    "description": "Weather data PostgreSQL database"
+  },
+  {
+    "conn_id": "meteo_minio",
+    "conn_type": "aws",
+    "host": "http://localhost:9000",
+    "login": "minioadmin",
+    "password": "CHANGE_ME",
+    "extra": "{\"endpoint_url\": \"http://localhost:9000\"}"
+  }
+]

@@ -1,9 +1,36 @@
+# Python
 airflow_venv/
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Airflow runtime
 airflow.db
 airflow.cfg
 webserver_config.py
 logs/
-.env
 standalone_admin_password.txt
+airflow-scheduler.*
+airflow-webserver.*
+
+# Secrets — never commit
+.env
+*.key
+*.pem
+
+# Data outputs (generated files)
+data/*.csv
+data/*.parquet
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
