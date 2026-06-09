@@ -96,8 +96,8 @@ docker-logs:
 # ── Quality ────────────────────────────────────────────────────────────────
 
 test:
-	source $(VENV) && export AIRFLOW_HOME=$(AIRFLOW_HOME) && \
-	pytest tests/ -v
+	AIRFLOW_HOME=$(AIRFLOW_HOME) AIRFLOW__CORE__LOAD_EXAMPLES=false \
+	airflow_venv/bin/pytest tests/ -v
 
 lint:
-	source $(VENV) && flake8 dags/ tests/ --max-line-length=100
+	airflow_venv/bin/flake8 dags/ tests/ --max-line-length=100
