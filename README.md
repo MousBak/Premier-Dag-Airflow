@@ -2,6 +2,14 @@
 
 > **Outil** : Apache Airflow 2.9.1 · **API** : Open-Meteo · **BDD** : PostgreSQL 14 · **Langage** : Python 3.12
 
+## Récapitulatif des TPs
+
+| TP | Titre | DAG | Destination | Statut |
+|----|-------|-----|-------------|--------|
+| **TP2** | Premier DAG Airflow | `tp2_pipeline_etl_simple` | Fichier CSV | ✅ success |
+| **TP2A** | Ingestion API météo multi-villes | `tp2a_ingestion_meteo` | Fichier CSV | ✅ success |
+| **TP2B** | Pipeline complet → PostgreSQL | `tp2b_pipeline_postgresql` | PostgreSQL | ✅ success |
+
 ---
 
 ## Qu'est-ce qu'un DAG ?
@@ -374,6 +382,58 @@ airflow webserver --port 8081
 ```
 
 Interface web : **http://localhost:8081** — identifiants : `admin` / `admin`
+
+---
+
+# Vérification — Preuve d'exécution des 3 TPs
+
+## Commandes de vérification
+
+```bash
+cd ~/Downloads/Airflow
+source airflow_venv/bin/activate
+export AIRFLOW_HOME=$(pwd)
+
+# Tester les 3 DAGs
+airflow dags test tp2_pipeline_etl_simple
+airflow dags test tp2a_ingestion_meteo
+airflow dags test tp2b_pipeline_postgresql
+```
+
+## Résultat attendu pour chaque DAG
+
+```
+state=success
+```
+
+## Vérification TP2 et TP2A — fichiers CSV produits
+
+```bash
+ls data/
+# meteo_paris_*.csv      → TP2
+# meteo_villes_*.csv     → TP2A
+```
+
+## Vérification TP2B — données dans PostgreSQL
+
+```bash
+# 28 lignes dans la table météo
+psql -U postgres -d meteo_db -c "SELECT COUNT(*) FROM meteo_journaliere;"
+#  count
+# -------
+#     28
+
+# Aperçu par ville
+psql -U postgres -d meteo_db -c \
+  "SELECT ville, date, temp_max_c, temp_min_c FROM meteo_journaliere ORDER BY ville, date LIMIT 8;"
+
+# Historique des ingestions
+psql -U postgres -d meteo_db -c \
+  "SELECT dag_id, nb_lignes, statut, fin_ingestion FROM suivi_ingestion;"
+#           dag_id          | nb_lignes | statut  |       fin_ingestion
+# --------------------------+-----------+---------+----------------------------
+#  tp2b_pipeline_postgresql |        28 | success | 2026-06-09 14:53:25.562217
+```
 
 ---
 
