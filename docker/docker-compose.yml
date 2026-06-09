@@ -1,46 +1,148 @@
-version: '3.8'
+---
+# Weather Data Platform — Full Stack
+# Usage: docker compose -f docker/docker-compose.yml up -d
+# UI:    http://localhost:8080  (admin / admin)
+# MinIO: http://localhost:9001  (minioadmin / minioadmin)
+# Flower http://localhost:5555  (Celery worker monitoring)
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.9.1
-  environment:
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-zTJjEbZGbgbI3j8yibPNLaRpfkGGTQvJKCZ5Y3S4kSw=}
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+    # Weather pipeline — passed as env vars and loaded into Airflow Variables at init
+    METEO_DB_HOST: postgres
+    METEO_DB_PORT: "5432"
+    METEO_DB_NAME: meteo_db
+    METEO_DB_USER: airflow
+    METEO_DB_PASSWORD: airflow
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ACCESS_KEY: minioadmin
+    MINIO_SECRET_KEY: minioadmin
+    MINIO_BUCKET_BRONZE: meteo-bronze
+    MINIO_BUCKET_SILVER: meteo-silver
   volumes:
-    - ./dags:/opt/airflow/dags
-    - ./logs:/opt/airflow/logs
-    - ./plugins:/opt/airflow/plugins
-  user: "${AIRFLOW_UID:-50000}:0"
+    - ../dags:/opt/airflow/dags
+    - ../logs:/opt/airflow/logs
+    - ../plugins:/opt/airflow/plugins
+    - ../config:/opt/airflow/config
+    - ../sql:/opt/airflow/sql
   depends_on:
     postgres:
       condition: service_healthy
+    redis:
+      condition: service_healthy
 
 services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  # Hosts two databases:
+  #   - airflow  : Airflow metadata (DAG runs, task instances, XCom)
+  #   - meteo_db : Weather data (meteo_journaliere, suivi_ingestion)
   postgres:
-    image: postgres:13
+    image: postgres:14-alpine
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
-      - postgres-db-volume:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 5s
       retries: 5
+    restart: unless-stopped
 
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  # Message broker for CeleryExecutor — enables true parallel task execution
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── MinIO ──────────────────────────────────────────────────────────────────
+  # S3-compatible object storage for Bronze and Silver layers
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ── MinIO bucket provisioning ──────────────────────────────────────────────
+  # Creates meteo-bronze and meteo-silver buckets once at startup
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb --ignore-existing local/meteo-bronze &&
+        mc mb --ignore-existing local/meteo-silver &&
+        echo 'Buckets ready: meteo-bronze, meteo-silver'
+      "
+    restart: "no"
+
+  # ── Airflow init ───────────────────────────────────────────────────────────
+  # Runs once: DB migrations, admin user, SQL tables, Airflow Variables
   airflow-init:
     <<: *airflow-common
     command: >
       bash -c "
-        airflow db init &&
-        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
+        airflow db migrate &&
+        airflow users create
+          --username admin --password admin
+          --firstname Admin --lastname User
+          --role Admin --email admin@example.com 2>/dev/null || true &&
+        PGPASSWORD=airflow psql -h postgres -U airflow -d meteo_db
+          -f /opt/airflow/sql/migrations/001_init_tables.sql &&
+        PGPASSWORD=airflow psql -h postgres -U airflow -d meteo_db
+          -f /opt/airflow/sql/migrations/002_add_indexes.sql &&
+        airflow variables set METEO_VILLES '[{\"nom\":\"Paris\",\"latitude\":48.8566,\"longitude\":2.3522},{\"nom\":\"Lyon\",\"latitude\":45.7640,\"longitude\":4.8357},{\"nom\":\"Marseille\",\"latitude\":43.2965,\"longitude\":5.3698},{\"nom\":\"Bordeaux\",\"latitude\":44.8378,\"longitude\":-0.5792}]' &&
+        airflow variables set METEO_PAST_DAYS 7 &&
+        airflow variables set METEO_DB_HOST postgres &&
+        airflow variables set METEO_DB_PORT 5432 &&
+        airflow variables set METEO_DB_NAME meteo_db &&
+        airflow variables set METEO_DB_USER airflow &&
+        airflow variables set METEO_DB_PASSWORD airflow &&
+        airflow variables set MINIO_ENDPOINT http://minio:9000 &&
+        airflow variables set MINIO_ACCESS_KEY minioadmin &&
+        airflow variables set MINIO_SECRET_KEY minioadmin &&
+        airflow variables set MINIO_BUCKET_BRONZE meteo-bronze &&
+        airflow variables set MINIO_BUCKET_SILVER meteo-silver &&
+        echo '=== Airflow initialised ==='
       "
     restart: "no"
 
+  # ── Airflow webserver ──────────────────────────────────────────────────────
   airflow-webserver:
     <<: *airflow-common
     command: webserver
@@ -52,11 +154,40 @@ services:
       timeout: 10s
       retries: 5
     restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
+  # ── Airflow scheduler ──────────────────────────────────────────────────────
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
     restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ── Airflow Celery worker ──────────────────────────────────────────────────
+  # Executes tasks in parallel — CeleryExecutor allows multiple workers
+  airflow-worker:
+    <<: *airflow-common
+    command: celery worker
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ── Flower — Celery monitoring UI ──────────────────────────────────────────
+  flower:
+    <<: *airflow-common
+    command: celery flower
+    ports:
+      - "5555:5555"
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
 volumes:
-  postgres-db-volume:
+  postgres_data:
+  minio_data:
