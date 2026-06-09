@@ -1,0 +1,61 @@
+version: 2
+
+sources:
+  - name: meteo
+    description: "Raw weather data loaded by the Airflow ingestion pipeline"
+    schema: public
+    tables:
+
+      - name: meteo_journaliere
+        description: "Daily weather observations — one row per city per day"
+        columns:
+          - name: id
+            description: "Auto-increment primary key"
+            tests:
+              - unique
+              - not_null
+
+          - name: ville
+            description: "City name (Paris, Lyon, Marseille, Bordeaux)"
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ["Paris", "Lyon", "Marseille", "Bordeaux"]
+
+          - name: date
+            description: "Observation date (YYYY-MM-DD)"
+            tests:
+              - not_null
+
+          - name: temp_max_c
+            description: "Maximum temperature in °C"
+            tests:
+              - not_null
+
+          - name: temp_min_c
+            description: "Minimum temperature in °C"
+            tests:
+              - not_null
+
+          - name: temp_moyenne_c
+            description: "Mean temperature in °C"
+            tests:
+              - not_null
+
+          - name: precipitation_mm
+            description: "Total precipitation in mm"
+            tests:
+              - not_null
+
+          - name: vent_max_kmh
+            description: "Maximum wind speed in km/h"
+            tests:
+              - not_null
+
+          - name: code_meteo
+            description: "WMO weather code"
+            tests:
+              - not_null
+
+          - name: insere_le
+            description: "Timestamp of last upsert"

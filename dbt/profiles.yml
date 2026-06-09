@@ -1,0 +1,25 @@
+weather_data_platform:
+  target: dev
+  outputs:
+
+    # Local development — Python venv + local PostgreSQL
+    dev:
+      type: postgres
+      host:     "{{ env_var('METEO_DB_HOST', 'localhost') }}"
+      port:     "{{ env_var('METEO_DB_PORT', '5432') | int }}"
+      dbname:   "{{ env_var('METEO_DB_NAME', 'meteo_db') }}"
+      user:     "{{ env_var('METEO_DB_USER', 'postgres') }}"
+      password: "{{ env_var('METEO_DB_PASSWORD', 'postgres') }}"
+      schema:   public
+      threads:  4
+
+    # Docker stack — uses postgres service from docker-compose
+    docker:
+      type: postgres
+      host:     postgres
+      port:     5432
+      dbname:   meteo_db
+      user:     airflow
+      password: airflow
+      schema:   public
+      threads:  4

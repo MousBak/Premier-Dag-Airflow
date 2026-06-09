@@ -1,0 +1,64 @@
+version: 2
+
+models:
+  - name: stg_weather
+    description: >
+      Cleaned and standardized daily weather observations.
+      Renames French columns to English, adds weather_description from WMO code,
+      and computes temp_range_c.
+
+    columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+
+      - name: city
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Paris", "Lyon", "Marseille", "Bordeaux"]
+
+      - name: observation_date
+        tests:
+          - not_null
+
+      - name: temp_max_c
+        tests:
+          - not_null
+
+      - name: temp_min_c
+        tests:
+          - not_null
+
+      - name: temp_avg_c
+        tests:
+          - not_null
+
+      - name: temp_range_c
+        description: "Daily temperature range (max - min). Always positive."
+        tests:
+          - not_null
+
+      - name: precipitation_mm
+        tests:
+          - not_null
+
+      - name: wind_max_kmh
+        tests:
+          - not_null
+
+      - name: weather_description
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - "Clear sky"
+                - "Partly cloudy"
+                - "Foggy"
+                - "Drizzle"
+                - "Rain"
+                - "Snow"
+                - "Rain showers"
+                - "Thunderstorm"
+                - "Unknown"

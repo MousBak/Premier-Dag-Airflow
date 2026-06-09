@@ -1,6 +1,7 @@
 .PHONY: setup run stop test lint \
         docker-up docker-down docker-build docker-logs \
-        minio buckets variables help
+        minio buckets variables \
+        dbt-run dbt-test dbt-docs help
 
 AIRFLOW_HOME := $(shell pwd)
 VENV         := airflow_venv/bin/activate
@@ -92,6 +93,19 @@ docker-build:
 
 docker-logs:
 	$(COMPOSE) logs -f
+
+# ── dbt ───────────────────────────────────────────────────────────────────
+
+dbt-run:
+	source $(VENV) && cd dbt && dbt run --profiles-dir . --project-dir .
+
+dbt-test:
+	source $(VENV) && cd dbt && dbt test --profiles-dir . --project-dir .
+
+dbt-docs:
+	source $(VENV) && cd dbt && dbt docs generate --profiles-dir . --project-dir . && \
+	dbt docs serve --profiles-dir . --project-dir . --port 8082
+	@echo "dbt docs: http://localhost:8082"
 
 # ── Quality ────────────────────────────────────────────────────────────────
 

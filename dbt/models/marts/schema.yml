@@ -1,0 +1,53 @@
+version: 2
+
+models:
+
+  - name: daily_weather
+    description: >
+      Production-ready daily weather table with enriched columns:
+      precipitation category, wind category, time dimensions.
+      Materialized as a TABLE for fast dashboard queries.
+
+    columns:
+      - name: city
+        tests: [not_null]
+      - name: observation_date
+        tests: [not_null]
+      - name: temp_max_c
+        tests: [not_null]
+      - name: temp_min_c
+        tests: [not_null]
+      - name: precipitation_mm
+        tests: [not_null]
+      - name: precipitation_category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Dry", "Light rain", "Moderate rain", "Heavy rain"]
+      - name: wind_category
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Calm", "Moderate", "Strong", "Storm"]
+
+  - name: city_monthly_stats
+    description: >
+      Monthly aggregated weather statistics per city.
+      One row = one city × one calendar month.
+      Used for trend analysis, seasonal comparison, and reporting.
+
+    columns:
+      - name: city
+        tests: [not_null]
+      - name: month_start
+        tests: [not_null]
+      - name: days_with_data
+        description: "Number of days with data in this month (max 31)"
+        tests: [not_null]
+      - name: avg_temp_c
+        tests: [not_null]
+      - name: total_precipitation_mm
+        tests: [not_null]
+      - name: rainy_days_pct
+        description: "Percentage of days with precipitation > 0"
+        tests: [not_null]

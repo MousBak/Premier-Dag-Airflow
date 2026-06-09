@@ -7,13 +7,19 @@ Architecture:
   extraire_ville.expand(ville=...) → 4 parallel task instances (one per city)
   stocker_bronze.expand(...)       → 4 parallel task instances (one per city)
   transformer_silver(all_data)     → fan-in: collects all cities, writes 1 CSV to Silver
-  charger_gold(rows)               → upsert into PostgreSQL
+  charger_gold(rows)               → upsert into PostgreSQL meteo_journaliere
+  dbt_run()                        → dbt run + dbt test (analytical views/tables)
   ecrire_suivi(count, paths)       → write audit record
 
 Why Dynamic Task Mapping?
   - Each city is independently retried on failure (not the whole batch)
   - Parallelism is visible in the Airflow UI per city
   - Adding a new city requires no code change — just update METEO_VILLES Variable
+
+Why dbt after load_gold?
+  - dbt transforms the raw Gold table into analytical models (staging + marts)
+  - dbt tests run automatically after each ingestion — data quality gate
+  - If dbt tests fail, the audit task is skipped → alert is raised
 """
 
 import io
@@ -27,6 +33,7 @@ import psycopg2
 from datetime import datetime, timedelta
 
 from airflow.decorators import dag, task
+from airflow.operators.bash import BashOperator
 from airflow.models import Variable
 
 from common.config import (
@@ -211,7 +218,20 @@ def weather_data_pipeline():
         conn.close()
         return len(lignes)
 
-    # ── Task 6 — Audit record ─────────────────────────────────────────────
+    # ── Task 6 — dbt transformations (run + test) ─────────────────────────
+    # Runs after Gold is loaded. Refreshes analytical views/tables and
+    # runs all dbt tests as a data quality gate.
+    # If dbt test fails → audit is skipped and an alert is raised.
+    dbt_run = BashOperator(
+        task_id="dbt_run",
+        bash_command=(
+            "cd {{ var.value.get('AIRFLOW_HOME', '/opt/airflow') }}/../dbt && "
+            "dbt run --profiles-dir . --project-dir . && "
+            "dbt test --profiles-dir . --project-dir ."
+        ),
+    )
+
+    # ── Task 7 — Audit record ─────────────────────────────────────────────
     @task(task_id="write_audit")
     def ecrire_suivi(nb_lignes: int, chemins_bronze: list[str], **context) -> None:
         """
@@ -256,13 +276,15 @@ def weather_data_pipeline():
     # ── DAG wiring ────────────────────────────────────────────────────────
     # Dynamic Task Mapping: one task instance per city for extract + store_bronze
     # Fan-in: transformer_silver collects all city outputs automatically
+    # dbt_run runs after Gold load — refreshes analytical models + data quality gate
 
-    villes  = get_cities()
-    extraits = extraire_ville.expand(ville=villes)        # → 4 task instances
-    chemins  = stocker_bronze.expand(extrait=extraits)    # → 4 task instances
+    villes   = get_cities()
+    extraits = extraire_ville.expand(ville=villes)        # → 4 parallel instances
+    chemins  = stocker_bronze.expand(extrait=extraits)    # → 4 parallel instances
     lignes   = transformer_silver(tous_extraits=extraits) # fan-in → 1 instance
     nb       = charger_gold(lignes=lignes)
-    ecrire_suivi(nb_lignes=nb, chemins_bronze=chemins)
+    nb >> dbt_run                                         # dbt after Gold load
+    ecrire_suivi(nb_lignes=nb, chemins_bronze=chemins) << dbt_run  # audit after dbt
 
 
 # Instantiate the DAG
