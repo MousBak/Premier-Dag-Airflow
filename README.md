@@ -60,6 +60,7 @@ puis produit des modèles analytiques via dbt.
 | **Pro 4** | Dynamic Task Mapping : une tâche Airflow par ville, parallèles |
 | **Pro 5** | dbt : staging + 2 marts analytiques + tests de qualité |
 | **Pro 6** | GitHub Actions CI/CD : lint + tests + dbt compile à chaque push |
+| **Pro 7** | Dashboard Grafana : 7 panels temps réel, provisionné automatiquement au démarrage |
 
 **Source de données** : [Open-Meteo](https://open-meteo.com/) — API météo gratuite, sans clé.
 
@@ -754,7 +755,7 @@ make dbt-run && make dbt-test
 |--|--|
 | **Nom** | Bakayoko Moussa |
 | **Projet** | Weather Data Platform — pipeline data engineering complet |
-| **Stack** | Airflow 2.9.1 · Python 3.12 · PostgreSQL 14 · MinIO · dbt · Docker · GitHub Actions |
+| **Stack** | Airflow 2.9.1 · Python 3.12 · PostgreSQL 14 · MinIO · dbt · Grafana · Docker · GitHub Actions |
 | **API** | [Open-Meteo](https://open-meteo.com/) — données météo gratuites, sans clé |
 | **Dépôt** | [github.com/MousBak/Premier-Dag-Airflow](https://github.com/MousBak/Premier-Dag-Airflow) |
 | **Date** | Juin 2026 |
