@@ -8,11 +8,10 @@
 ![MinIO](https://img.shields.io/badge/MinIO-S3%20Compatible-C72E49?logo=minio&logoColor=white)
 ![dbt](https://img.shields.io/badge/dbt-1.x-FF694B?logo=dbt&logoColor=white)
 ![Tests](https://img.shields.io/badge/Tests-73%20passed-brightgreen)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 
-> Production-grade weather data pipeline — Airflow orchestration, Medallion architecture
-> (Bronze/Silver/Gold), Dynamic Task Mapping, dbt analytical models, full CI/CD.
-
-> **Données** : API Open-Meteo · **Stockage** : MinIO (S3) · **Base de données** : PostgreSQL · **Transformations** : dbt
+> Pipeline de données météo production-ready — orchestration Airflow, architecture Medallion
+> (Bronze/Silver/Gold), Dynamic Task Mapping, modèles analytiques dbt, CI/CD GitHub Actions.
 
 ---
 
@@ -21,39 +20,46 @@
 1. [Contexte du projet](#1-contexte-du-projet)
 2. [Technologies utilisées](#2-technologies-utilisées)
 3. [Structure du projet](#3-structure-du-projet)
-4. [Concepts clés Airflow](#4-concepts-clés-airflow)
-5. [TP2 — Premier DAG Airflow](#5-tp2--premier-dag-airflow)
-6. [TP2A — Ingestion multi-villes](#6-tp2a--ingestion-multi-villes)
-7. [TP2B — Pipeline complet vers PostgreSQL](#7-tp2b--pipeline-complet-vers-postgresql)
-8. [TP3 — Data Lake Medallion](#8-tp3--data-lake-medallion)
-9. [Installation complète](#9-installation-complète)
-10. [Guide de vérification](#10-guide-de-vérification)
-11. [Auteur](#11-auteur)
+4. [Quick Start — Docker](#4-quick-start--docker)
+5. [DAG Production — weather_data_pipeline](#5-dag-production--weather_data_pipeline)
+6. [Tests automatisés](#6-tests-automatisés)
+7. [Modèles dbt](#7-modèles-dbt)
+8. [CI/CD — GitHub Actions](#8-cicd--github-actions)
+9. [Concepts clés Airflow](#9-concepts-clés-airflow)
+10. [TP2 — Premier DAG Airflow](#10-tp2--premier-dag-airflow)
+11. [TP2A — Ingestion multi-villes](#11-tp2a--ingestion-multi-villes)
+12. [TP2B — Pipeline complet vers PostgreSQL](#12-tp2b--pipeline-complet-vers-postgresql)
+13. [TP3 — Data Lake Medallion](#13-tp3--data-lake-medallion)
+14. [Installation locale](#14-installation-locale)
+15. [Guide de vérification](#15-guide-de-vérification)
+16. [Auteur](#16-auteur)
 
 ---
 
 ## 1. Contexte du projet
 
-Ce dépôt regroupe l'ensemble des travaux pratiques Airflow réalisés dans le cadre du cours
-d'orchestration de pipelines de données.
+Ce dépôt est parti de travaux pratiques Airflow et a été transformé en **projet portfolio data engineering complet**.
 
-L'objectif global est de construire, étape par étape, un **pipeline ETL complet et industrialisable** :
+Le pipeline collecte des données météo réelles depuis l'API Open-Meteo pour 4 villes françaises,
+les stocke dans un Data Lake (MinIO), les transforme, les charge dans PostgreSQL,
+puis produit des modèles analytiques via dbt.
 
-```
-API publique → Extraction → Transformation → Stockage objet → Base de données relationnelle
-```
+### Progression des TPs → projet professionnel
 
-Chaque TP ajoute un niveau de complexité supplémentaire :
+| Étape | Ce qui a été ajouté |
+|-------|---------------------|
+| **TP2** | Premier DAG, 3 tâches, API → CSV |
+| **TP2A** | 4 villes, séparation extraction/transformation |
+| **TP2B** | Chargement PostgreSQL, Variables Airflow, traçabilité |
+| **TP3** | Architecture Medallion : Bronze (MinIO) → Silver (MinIO) → Gold (PostgreSQL) |
+| **Pro 1** | Structure professionnelle : `dags/common/`, `tests/`, `docker/`, `sql/migrations/`, `Makefile` |
+| **Pro 2** | Docker Compose complet : Airflow + PostgreSQL + MinIO + Redis + Flower |
+| **Pro 3** | 73 tests pytest : unit, integration, DAG integrity |
+| **Pro 4** | Dynamic Task Mapping : une tâche Airflow par ville, parallèles |
+| **Pro 5** | dbt : staging + 2 marts analytiques + tests de qualité |
+| **Pro 6** | GitHub Actions CI/CD : lint + tests + dbt compile à chaque push |
 
-| TP | Nouveauté introduite | Destination finale |
-|----|---------------------|--------------------|
-| **TP2** | Premier DAG, 3 tâches, dépendances explicites | Fichier CSV local |
-| **TP2A** | Multi-villes, séparation extraction/transformation | Fichier CSV structuré |
-| **TP2B** | Chargement PostgreSQL, traçabilité, paramétrage via Variables | Base de données |
-| **TP3** | Architecture Data Lake Medallion, stockage objet MinIO | MinIO + PostgreSQL |
-
-**Source de données** : [Open-Meteo](https://open-meteo.com/) — API météo gratuite, sans clé,
-fournissant des données journalières et horaires pour n'importe quel point GPS.
+**Source de données** : [Open-Meteo](https://open-meteo.com/) — API météo gratuite, sans clé.
 
 ---
 
@@ -61,15 +67,18 @@ fournissant des données journalières et horaires pour n'importe quel point GPS
 
 | Technologie | Version | Rôle |
 |-------------|---------|------|
-| **Apache Airflow** | 2.9.1 | Orchestrateur de pipelines (scheduler, UI, XCom) |
-| **Python** | 3.12 | Langage des DAGs et des tâches |
-| **Open-Meteo API** | — | Source de données météo (gratuite, pas de clé) |
-| **PostgreSQL** | 14 | Base de données relationnelle (couche Gold) |
-| **MinIO** | latest | Stockage objet S3-compatible (couches Bronze et Silver) |
+| **Apache Airflow** | 2.9.1 | Orchestration : scheduler, UI, XCom, Variables |
+| **Python** | 3.12 | Langage des DAGs, transformations, tests |
+| **Open-Meteo API** | — | Source météo gratuite, sans clé d'authentification |
+| **PostgreSQL** | 14 | Couche Gold : table analytique + suivi d'ingestion |
+| **MinIO** | latest | Stockage objet S3-compatible — couches Bronze et Silver |
+| **dbt** | 1.x | Transformations SQL analytiques sur la couche Gold |
+| **Redis** | 7 | Broker de messages pour CeleryExecutor (parallélisme réel) |
+| **Docker / Compose** | — | Stack complète en une commande |
 | **boto3** | — | Client Python pour MinIO/S3 |
-| **psycopg2** | — | Connecteur Python pour PostgreSQL |
-| **certifi** | — | Certificats SSL pour les appels HTTPS sur macOS |
-| **Docker** | — | Conteneur MinIO |
+| **psycopg2** | — | Connecteur Python → PostgreSQL |
+| **pytest** | 8+ | 73 tests automatisés (unit + integration + DAG integrity) |
+| **GitHub Actions** | — | CI/CD : lint + tests + dbt compile à chaque push |
 
 ---
 
@@ -79,124 +88,360 @@ fournissant des données journalières et horaires pour n'importe quel point GPS
 weather-data-platform/
 │
 ├── .github/workflows/
-│   ├── ci.yml                         # Lint + tests à chaque push (GitHub Actions)
-│   └── dbt-validate.yml               # Validation dbt compile à chaque push sur dbt/
+│   ├── ci.yml                          # Lint + tests à chaque push
+│   └── dbt-validate.yml                # dbt compile quand dbt/ change
 │
 ├── dags/
 │   ├── common/
-│   │   └── config.py                  # Config partagée — get_config(), get_s3_client(), json_to_rows()
+│   │   └── config.py                   # Config partagée : get_config(), get_s3_client(), json_to_rows()
 │   ├── ingestion/
-│   │   ├── weather_pipeline_dag.py    # DAG production — TaskFlow + Dynamic Task Mapping
-│   │   ├── tp2_premier_dag.py         # TP2  — premier DAG, 3 tâches, CSV
-│   │   ├── tp2a_ingestion_meteo.py    # TP2A — 4 villes, séparation E/T
-│   │   ├── tp2b_pipeline_postgresql.py# TP2B — PostgreSQL, Variables, suivi
-│   │   └── tp3_data_lake.py           # TP3  — Medallion Bronze → Silver → Gold
-│   └── transformation/                # (réservé pour les DAGs dbt dédiés)
+│   │   ├── weather_pipeline_dag.py     # ★ DAG production (TaskFlow + Dynamic Task Mapping)
+│   │   ├── tp2_premier_dag.py          # TP2 — 3 tâches, Paris, CSV
+│   │   ├── tp2a_ingestion_meteo.py     # TP2A — 4 villes, séparation E/T
+│   │   ├── tp2b_pipeline_postgresql.py # TP2B — PostgreSQL, Variables, suivi
+│   │   └── tp3_data_lake.py            # TP3 — Medallion Bronze → Silver → Gold
+│   └── transformation/                 # Réservé pour les DAGs dbt
 │
 ├── dbt/
 │   ├── models/
 │   │   ├── staging/
-│   │   │   ├── sources.yml            # Déclaration de la source meteo_journaliere
-│   │   │   ├── stg_weather.sql        # Vue propre — colonnes EN + weather_description
-│   │   │   └── schema.yml             # Tests des colonnes staging
+│   │   │   ├── sources.yml             # Déclaration source meteo_journaliere
+│   │   │   ├── stg_weather.sql         # Vue : colonnes EN + weather_description
+│   │   │   └── schema.yml              # Tests colonnes staging
 │   │   └── marts/
-│   │       ├── daily_weather.sql      # Table enrichie avec catégories pluie/vent
-│   │       ├── city_monthly_stats.sql # Agrégats mensuels par ville
+│   │       ├── daily_weather.sql       # Table : catégories pluie/vent, dimensions temps
+│   │       ├── city_monthly_stats.sql  # Table : agrégats mensuels par ville
 │   │       └── schema.yml
 │   ├── tests/
 │   │   └── assert_temp_max_greater_than_min.sql
 │   ├── dbt_project.yml
-│   ├── profiles.yml                   # Connexions dev + docker
+│   ├── profiles.yml                    # Profils dev + docker
 │   └── packages.yml
 │
 ├── tests/
 │   ├── unit/
-│   │   └── test_transformations.py    # 19 tests — logique pure, sans I/O
+│   │   └── test_transformations.py     # 19 tests — logique pure, sans I/O
 │   ├── integration/
-│   │   └── test_pipeline.py           # 10 tests — API + MinIO + PG mockés
+│   │   └── test_pipeline.py            # 10 tests — API + MinIO + PG mockés
 │   └── dags/
-│       └── test_dag_integrity.py      # 44 tests — import, structure, config
+│       └── test_dag_integrity.py       # 44 tests — import, structure, config
 │
 ├── docker/
-│   ├── docker-compose.yml             # Stack complète : Airflow + PG + MinIO + Redis
-│   ├── Dockerfile                     # Image Airflow custom avec nos dépendances
-│   └── init-db.sh                     # Crée meteo_db au démarrage PostgreSQL
+│   ├── docker-compose.yml              # Stack : Airflow + PG + MinIO + Redis + Flower
+│   ├── Dockerfile                      # Image Airflow custom
+│   └── init-db.sh                      # Crée meteo_db au démarrage PostgreSQL
 │
 ├── sql/migrations/
-│   ├── 001_init_tables.sql            # Création meteo_journaliere + suivi_ingestion
-│   └── 002_add_indexes.sql            # Index de performance
+│   ├── 001_init_tables.sql             # Création des tables
+│   └── 002_add_indexes.sql             # Index de performance
 │
 ├── config/
-│   ├── variables.json                 # Template des Variables Airflow
-│   └── connections.json               # Template des Connections Airflow
+│   ├── variables.json                  # Template Variables Airflow
+│   └── connections.json                # Template Connections Airflow
 │
 ├── scripts/
-│   ├── setup.sh                       # Installation en une commande
-│   └── create_buckets.py              # Création des buckets MinIO
+│   ├── setup.sh                        # Installation en une commande
+│   └── create_buckets.py               # Création des buckets MinIO
 │
 ├── docs/
-│   ├── architecture.md                # Schéma Medallion + modèle de données
-│   └── adr/001_why_minio.md           # Architecture Decision Record
+│   ├── architecture.md                 # Schéma Medallion + modèle de données
+│   └── adr/001_why_minio.md            # Architecture Decision Record
 │
-├── .env.example                       # Template credentials
-├── .gitignore
-├── Makefile                           # make setup / run / test / dbt-run / docker-up
-├── pyproject.toml                     # Dépendances Python déclarées
+├── .env.example                        # Template credentials
+├── Makefile                            # Toutes les commandes du projet
+├── pyproject.toml                      # Dépendances Python
 └── CHANGELOG.md
 ```
 
 ---
 
-## 4. Concepts clés Airflow
+## 4. Quick Start — Docker
+
+Lance la stack complète en **une seule commande** :
+
+```bash
+git clone https://github.com/MousBak/Premier-Dag-Airflow.git
+cd Premier-Dag-Airflow
+make docker-up
+```
+
+Cette commande démarre automatiquement :
+
+| Service | URL | Identifiants |
+|---------|-----|-------------|
+| Airflow UI | http://localhost:8080 | admin / admin |
+| MinIO Console | http://localhost:9001 | minioadmin / minioadmin |
+| Flower (workers) | http://localhost:5555 | — |
+| PostgreSQL | localhost:5432 | airflow / airflow |
+
+Au premier démarrage, `airflow-init` :
+- Migre la base de données Airflow
+- Crée l'utilisateur admin
+- Crée les tables `meteo_journaliere` et `suivi_ingestion`
+- Charge toutes les Variables Airflow
+- Crée les buckets MinIO `meteo-bronze` et `meteo-silver`
+
+### Commandes Makefile disponibles
+
+```bash
+make docker-up      # Démarrer la stack complète
+make docker-down    # Arrêter et supprimer les conteneurs
+make docker-logs    # Voir les logs en temps réel
+
+make test           # Lancer les 73 tests pytest
+make lint           # Vérifier le style du code (flake8)
+
+make dbt-run        # Exécuter les modèles dbt
+make dbt-test       # Lancer les tests dbt
+make dbt-docs       # Générer et servir la documentation dbt (port 8082)
+```
+
+---
+
+## 5. DAG Production — weather_data_pipeline
+
+Le DAG production utilise le **TaskFlow API** et le **Dynamic Task Mapping** d'Airflow 2.3+.
+
+### Architecture du pipeline
+
+```
+get_cities
+    │
+    ├── extract_city[Paris]      ─┐
+    ├── extract_city[Lyon]       ─┤  4 tâches en parallèle
+    ├── extract_city[Marseille]  ─┤  (une par ville)
+    └── extract_city[Bordeaux]   ─┘
+              │
+    ┌─────────┴──────────┐
+    │                    │
+    ├── store_bronze[Paris]      ─┐
+    ├── store_bronze[Lyon]       ─┤  4 tâches en parallèle
+    ├── store_bronze[Marseille]  ─┤  (JSON brut → MinIO)
+    └── store_bronze[Bordeaux]   ─┘
+              │
+         transform_silver        ←  fan-in : collecte les 4 villes → 1 CSV dans MinIO
+              │
+          load_gold              ←  upsert PostgreSQL (28 lignes)
+              │
+           dbt_run               ←  dbt run + dbt test (gate de qualité)
+              │
+         write_audit             ←  traçabilité dans suivi_ingestion
+```
+
+### Pourquoi le Dynamic Task Mapping ?
+
+| Avant (TP3) | Après (production) |
+|-------------|-------------------|
+| 1 tâche boucle sur 4 villes | 4 tâches indépendantes dans l'UI |
+| Si Lyon échoue → tout le batch retente | Si Lyon échoue → seul Lyon retente |
+| Pas de parallélisme visible | Parallélisme visible ville par ville |
+| Ajouter une ville = modifier le code | Ajouter une ville = modifier la Variable `METEO_VILLES` |
+
+### Schedule et retry
+
+```python
+schedule_interval = "0 6 * * *"        # tous les jours à 06:00
+retries = 2
+retry_exponential_backoff = True        # évite de saturer l'API en cas d'erreur
+```
+
+### Lancer le DAG production en local
+
+```bash
+export AIRFLOW_HOME=$(pwd)
+source airflow_venv/bin/activate
+airflow dags test weather_data_pipeline
+```
+
+---
+
+## 6. Tests automatisés
+
+**73 tests** organisés en 3 suites. Aucun service externe requis — tout est mocké.
+
+```bash
+make test
+# ou
+AIRFLOW_HOME=$(pwd) airflow_venv/bin/pytest tests/ -v
+```
+
+### Suite 1 — Unit tests (`tests/unit/`) — 19 tests
+
+Teste la logique de transformation pure, sans appel réseau ni base de données.
+
+| Test | Ce qui est vérifié |
+|------|-------------------|
+| `test_returns_correct_number_of_rows` | json_to_rows produit N lignes pour N jours |
+| `test_temp_max_greater_than_min` | Invariant : temp_max > temp_min sur chaque ligne |
+| `test_no_extra_columns` | Aucune colonne inattendue dans la sortie |
+| `test_empty_days_returns_empty_list` | Comportement sur données vides |
+| `test_forecast_days_is_zero` | L'API n'est jamais appelée avec des jours futurs |
+| ... | 14 autres tests |
+
+### Suite 2 — Integration tests (`tests/integration/`) — 10 tests
+
+Teste le pipeline complet avec API, MinIO et PostgreSQL **mockés**.
+
+| Test | Ce qui est vérifié |
+|------|-------------------|
+| `test_all_cities_produce_rows` | Chaque ville produit des lignes en sortie |
+| `test_bronze_keys_follow_naming_convention` | Chemin S3 = `YYYY-MM-DD/<ville>.json` |
+| `test_bronze_stores_raw_json_unchanged` | Le JSON brut n'est pas modifié avant stockage |
+| `test_executemany_called_once` | PostgreSQL reçoit une seule requête batch |
+| `test_commit_is_called` | La transaction est bien commitée |
+| ... | 5 autres tests |
+
+### Suite 3 — DAG integrity (`tests/dags/`) — 44 tests
+
+Vérifie que chaque DAG respecte les standards de qualité.
+
+| Test | Ce qui est vérifié |
+|------|-------------------|
+| `test_no_import_errors` | Tous les DAGs s'importent sans exception |
+| `test_dag_is_present` | Chaque DAG attendu est dans le DagBag |
+| `test_catchup_is_disabled` | `catchup=False` sur tous les DAGs |
+| `test_all_tasks_have_retries` | Chaque tâche a au moins 1 retry |
+| `test_production_dag_has_schedule` | Le DAG production a un vrai cron |
+| `test_production_dag_has_exponential_backoff` | Backoff exponentiel activé |
+| ... | 38 autres tests |
+
+---
+
+## 7. Modèles dbt
+
+dbt transforme la couche Gold brute (`meteo_journaliere`) en modèles analytiques prêts à l'emploi.
+
+### Architecture dbt
+
+```
+meteo_journaliere (PostgreSQL Gold)
+        │
+        ▼
+   stg_weather          ← Vue : colonnes renommées EN, weather_description, temp_range_c
+        │
+        ├──→  daily_weather         ← Table : catégories pluie/vent, dimensions temps
+        └──→  city_monthly_stats    ← Table : agrégats mensuels par ville
+```
+
+### Modèles
+
+**`stg_weather`** (Vue)
+- Renomme les colonnes françaises en anglais (`ville` → `city`, `date` → `observation_date`…)
+- Ajoute `weather_description` depuis le code WMO (`0` → "Clear sky", `61` → "Rain"…)
+- Calcule `temp_range_c` = `temp_max_c` - `temp_min_c`
+
+**`daily_weather`** (Table)
+- Hérite de `stg_weather`
+- Ajoute `precipitation_category` (Dry / Light rain / Moderate / Heavy)
+- Ajoute `wind_category` (Calm / Moderate / Strong / Storm)
+- Ajoute les dimensions temps : `week_start`, `month_start`, `day_of_week`
+
+**`city_monthly_stats`** (Table)
+- Hérite de `daily_weather`
+- Une ligne = une ville × un mois calendaire
+- Colonnes : `avg_temp_c`, `max_temp_c`, `total_precipitation_mm`, `rainy_days`, `rainy_days_pct`, `dominant_weather`
+
+### Tests dbt
+
+```yaml
+# Exemples de tests déclarés dans schema.yml
+- city: not_null, accepted_values [Paris, Lyon, Marseille, Bordeaux]
+- observation_date: not_null
+- precipitation_category: accepted_values [Dry, Light rain, Moderate rain, Heavy rain]
+```
+
+```sql
+-- Test custom : temp_max doit toujours être > temp_min
+-- dbt/tests/assert_temp_max_greater_than_min.sql
+SELECT city, observation_date, temp_max_c, temp_min_c
+FROM {{ ref('stg_weather') }}
+WHERE temp_max_c < temp_min_c   -- dbt attend 0 ligne ici
+```
+
+### Lancer dbt
+
+```bash
+make dbt-run    # Exécute les modèles
+make dbt-test   # Lance les tests de qualité
+make dbt-docs   # Documentation interactive (http://localhost:8082)
+```
+
+---
+
+## 8. CI/CD — GitHub Actions
+
+Deux workflows se déclenchent automatiquement à chaque push.
+
+### `ci.yml` — Pipeline CI complète
+
+Déclenché sur chaque push et pull request vers `main`.
+
+```
+push / PR
+    │
+    ├── Job 1: lint (flake8)          ~30s  — bloque rapidement sur les erreurs de style
+    ├── Job 2: unit + integration     ~45s  — sans Airflow, rapide
+    └── Job 3: DAG integrity          ~5min — avec Airflow 2.9.1, résultat caché
+
+    └── Job 4: all-tests-pass         — check global requis pour merger
+```
+
+### `dbt-validate.yml` — Validation dbt
+
+Déclenché uniquement quand des fichiers dans `dbt/` changent.
+
+```
+dbt compile   — vérifie la syntaxe SQL et les ref() sans connexion DB
+```
+
+### Voir les résultats
+
+Onglet **Actions** sur GitHub → chaque commit affiche le statut détaillé de chaque job.
+
+---
+
+## 9. Concepts clés Airflow
 
 ### Qu'est-ce qu'un DAG ?
 
-Un **DAG** (Directed Acyclic Graph — Graphe Orienté Acyclique) est le concept central d'Airflow.
-Il représente un workflow : un ensemble de tâches à exécuter dans un ordre précis.
+Un **DAG** (Directed Acyclic Graph — Graphe Orienté Acyclique) représente un workflow :
+un ensemble de tâches à exécuter dans un ordre précis, sans boucle possible.
 
-- **Dirigé** → chaque tâche a une direction (A doit finir avant B)
-- **Acyclique** → pas de boucle (A ne peut pas dépendre de lui-même)
-- **Graphe** → les tâches sont des nœuds reliés par des dépendances
-
-Les dépendances s'écrivent avec l'opérateur `>>` en Python :
 ```python
 tache_a >> tache_b >> tache_c  # b démarre après a, c démarre après b
 ```
 
-### Glossaire des concepts utilisés dans ces TPs
+### Glossaire
 
 | Concept | Définition |
 |---------|-----------|
 | **DAG** | Graphe de tâches ordonnées, sans cycle |
-| **PythonOperator** | Exécute une fonction Python comme tâche Airflow |
-| **XCom** | Mécanisme d'échange de données entre tâches (via la base de données Airflow) |
-| **DAG Run** | Une exécution complète d'un DAG à un instant donné |
-| **Task Instance** | Une exécution concrète d'une tâche dans un DAG Run |
-| **scheduler** | Processus Airflow qui surveille et déclenche les tâches |
-| **Variable Airflow** | Valeur configurable depuis l'UI (Admin → Variables), sans toucher au code |
-| **`schedule_interval=None`** | Le DAG ne se déclenche que manuellement |
-| **`catchup=False`** | Airflow ne rattrape pas les exécutions manquées au démarrage |
-| **`retries`** | Nombre de tentatives automatiques si une tâche échoue |
-| **`ON CONFLICT DO UPDATE`** | Upsert SQL : insère une ligne ou la met à jour si elle existe déjà |
+| **PythonOperator** | Exécute une fonction Python comme tâche |
+| **TaskFlow API** | Syntaxe moderne avec `@task` — XCom géré automatiquement |
+| **Dynamic Task Mapping** | Crée N instances d'une tâche depuis une liste (`.expand()`) |
+| **XCom** | Échange de données entre tâches via la base de données Airflow |
+| **Variable Airflow** | Valeur configurable depuis l'UI sans toucher au code |
+| **CeleryExecutor** | Exécuteur distribué — plusieurs workers en parallèle |
+| **`catchup=False`** | Airflow ne rattrape pas les runs manqués au démarrage |
+| **`ON CONFLICT DO UPDATE`** | Upsert SQL : insère ou met à jour si la ligne existe |
 
-### Couleurs des tâches dans l'interface Airflow
+### Couleurs des tâches dans l'UI
 
 | Couleur | État | Signification |
 |---------|------|---------------|
-| Vert foncé | `success` | Tâche terminée avec succès |
-| Jaune / vert clair | `running` | En cours d'exécution |
-| Orange | `up_for_retry` | Echec → retry automatique en attente |
-| Rouge | `failed` | Tous les retries épuisés, tâche en erreur |
+| Vert foncé | `success` | Terminée avec succès |
+| Vert clair | `running` | En cours d'exécution |
+| Orange | `up_for_retry` | Échec → retry en attente |
+| Rouge | `failed` | Tous les retries épuisés |
 | Blanc / gris | `none` | Pas encore planifiée |
 
 ---
 
-## 5. TP2 — Premier DAG Airflow
+## 10. TP2 — Premier DAG Airflow
 
 ### Objectif
 
-Créer un premier DAG simple avec **3 tâches**, des **dépendances explicites**, et une **source de données réelle**.
-Utiliser l'API Open-Meteo pour récupérer les données météo de Paris sur 7 jours.
+Créer un premier DAG avec **3 tâches**, des dépendances explicites et une source réelle.
 
 ### Pipeline
 
@@ -204,89 +449,37 @@ Utiliser l'API Open-Meteo pour récupérer les données météo de Paris sur 7 j
 extraire_donnees  ──→  transformer_donnees  ──→  charger_donnees
 ```
 
-### Description des tâches
-
 | Tâche | Rôle |
 |-------|------|
-| `extraire_donnees` | Appelle Open-Meteo, récupère **168 relevés horaires** de Paris sur 7 jours, pousse le JSON brut via XCom |
-| `transformer_donnees` | Récupère le JSON depuis XCom, agrège les relevés horaires en **7 résumés journaliers** (min/max/moyenne/pluie) |
-| `charger_donnees` | Récupère les données transformées depuis XCom, exporte dans un **fichier CSV horodaté** |
+| `extraire_donnees` | Appelle Open-Meteo → 168 relevés horaires de Paris sur 7 jours |
+| `transformer_donnees` | Agrège en 7 résumés journaliers (min/max/moyenne/pluie) |
+| `charger_donnees` | Exporte dans un fichier CSV horodaté |
 
-### Pourquoi XCom ?
+### Résultat
 
-Les tâches Airflow s'exécutent dans des processus séparés. Pour qu'une tâche transmette des données
-à la suivante, on utilise **XCom** (Cross-Communication) : la tâche productrice appelle
-`xcom_push()` et la tâche consommatrice appelle `xcom_pull()`. Les données transitent par
-la base de données d'Airflow.
-
-```python
-# Tâche 1 — on envoie les données
-context["ti"].xcom_push(key="donnees_brutes", value=donnees)
-
-# Tâche 2 — on les récupère
-donnees = context["ti"].xcom_pull(key="donnees_brutes", task_ids="extraire_donnees")
-```
-
-### Résultat d'exécution
-
-**Logs de `extraire_donnees` :**
-```
-=== EXTRACTION — Météo de Paris ===
-Statut HTTP      : 200
-Relevés reçus    : 168 points horaires
-Période couverte : 2026-06-01T00:00  →  2026-06-07T23:00
-```
-
-**Logs de `transformer_donnees` :**
 ```
 2026-06-01 | min: 15.0°C | max: 26.3°C | moy: 20.7°C | pluie: 0.0mm
 2026-06-02 | min: 17.3°C | max: 22.7°C | moy: 19.5°C | pluie: 5.6mm
-2026-06-03 | min: 14.3°C | max: 20.6°C | moy: 17.4°C | pluie: 0.0mm
-2026-06-04 | min: 15.3°C | max: 20.5°C | moy: 17.4°C | pluie: 2.1mm
-2026-06-05 | min: 12.2°C | max: 19.3°C | moy: 15.9°C | pluie: 0.0mm
-2026-06-06 | min: 14.0°C | max: 21.1°C | moy: 16.9°C | pluie: 1.7mm
-2026-06-07 | min: 12.5°C | max: 23.3°C | moy: 17.9°C | pluie: 0.0mm
-```
-
-**Fichier CSV généré** (`data/meteo_paris_20260609_153120.csv`) :
-```
-date,temp_min,temp_max,temp_moyenne,precipitation_mm,nb_releves
-2026-06-01,15.0,26.3,20.7,0.0,24
-2026-06-02,17.3,22.7,19.5,5.6,24
 ...
 ```
 
-### Commande de test
-
 ```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
 airflow dags test tp2_pipeline_etl_simple
 ```
 
 ---
 
-## 6. TP2A — Ingestion multi-villes
+## 11. TP2A — Ingestion multi-villes
 
 ### Objectif
 
-Étendre le pipeline à **4 villes françaises**, en imposant une **séparation stricte** entre la logique
-d'extraction (appel réseau) et la logique de transformation (sélection, renommage).
-Justifier les champs conservés et ceux supprimés.
+4 villes françaises, **séparation stricte** extraction / transformation, champs justifiés.
 
 ### Pipeline
 
 ```
 extraire_donnees_brutes  ──→  preparer_donnees_pipeline  ──→  charger_table_cible
 ```
-
-### Description des tâches
-
-| Tâche | Rôle |
-|-------|------|
-| `extraire_donnees_brutes` | Appelle l'API pour **4 villes**, stocke le JSON **tel quel** — aucune transformation, aucun filtre |
-| `preparer_donnees_pipeline` | **Aucun appel réseau** — sélection des champs, renommage, structuration pour la table cible |
-| `charger_table_cible` | Exporte les **28 lignes** (4 villes × 7 jours) dans un fichier CSV structuré |
 
 ### Villes couvertes
 
@@ -297,78 +490,41 @@ extraire_donnees_brutes  ──→  preparer_donnees_pipeline  ──→  charge
 | Marseille | 43.2965 | 5.3698 |
 | Bordeaux | 44.8378 | -0.5792 |
 
-### Pourquoi séparer extraction et transformation ?
+### Champs retenus
 
-La séparation respecte le principe de **responsabilité unique** (chaque tâche a un seul rôle) :
-
-- Si l'API est indisponible, seule la tâche d'extraction échoue. Airflow peut la retenter
-  automatiquement sans relancer la transformation.
-- Si la logique de transformation change, on ne touche pas au code d'extraction.
-- Les données brutes sont conservées dans XCom pour audit ou rejeu.
-
-```python
-# Tâche 1 — extraction pure : on ne touche à RIEN
-resultats_bruts[ville["nom"]] = donnees_json   # JSON brut stocké tel quel
-context["ti"].xcom_push(key="donnees_brutes", value=resultats_bruts)
-
-# Tâche 2 — transformation pure : AUCUN appel réseau ici
-donnees_brutes = context["ti"].xcom_pull(key="donnees_brutes", task_ids="extraire_donnees_brutes")
-# On sélectionne et structure uniquement ici
-```
-
-### Champs retenus — justification
-
-| Champ dans la table | Champ API d'origine | Pourquoi retenu |
-|---------------------|--------------------|--------------------|
-| `ville` | *(ajouté)* | Clé géographique indispensable pour identifier la source |
+| Champ | Source API | Justification |
+|-------|-----------|---------------|
+| `ville` | *(ajouté)* | Clé géographique |
 | `date` | `time` | Dimension temporelle obligatoire |
-| `temp_max_c` | `temperature_2m_max` | Indicateur thermique journalier maximal |
-| `temp_min_c` | `temperature_2m_min` | Indicateur thermique journalier minimal |
-| `temp_moyenne_c` | `temperature_2m_mean` | Synthèse journalière, utile pour calculer des moyennes |
-| `precipitation_mm` | `precipitation_sum` | Volume de pluie cumulé (alertes, agriculture) |
-| `vent_max_kmh` | `windspeed_10m_max` | Vitesse de vent maximale (sécurité, événements extrêmes) |
-| `code_meteo` | `weathercode` | Code WMO : catégorise le temps (soleil, pluie, neige, orage…) |
+| `temp_max_c` | `temperature_2m_max` | Indicateur thermique haut |
+| `temp_min_c` | `temperature_2m_min` | Indicateur thermique bas |
+| `temp_moyenne_c` | `temperature_2m_mean` | Synthèse journalière |
+| `precipitation_mm` | `precipitation_sum` | Volume de pluie |
+| `vent_max_kmh` | `windspeed_10m_max` | Conditions extrêmes |
+| `code_meteo` | `weathercode` | Code WMO (soleil/pluie/neige…) |
 
-### Champs supprimés — justification
+### Champs supprimés
 
-| Champ supprimé | Raison |
-|----------------|--------|
-| `latitude` / `longitude` | Redondant avec le nom de ville, augmente inutilement la taille des données |
-| `elevation` | Altitude fixe de la ville, sans valeur pour l'analyse météo quotidienne |
-| `timezone` / `utc_offset_seconds` | Fixé à `Europe/Paris` en amont, valeur constante sans intérêt |
-| `generationtime_ms` | Métadonnée interne de l'API (temps de génération), aucune valeur métier |
+| Champ | Raison |
+|-------|--------|
+| `latitude` / `longitude` | Redondant avec le nom de ville |
+| `elevation` | Inutile pour l'analyse quotidienne |
+| `timezone` / `utc_offset` | Fixé à Europe/Paris en amont |
+| `generationtime_ms` | Métadonnée interne de l'API |
 
-### Aperçu des données produites
-
-```
-VILLE        DATE          MAX    MIN    MOY   PLUIE     VENT   CODE
--------------------------------------------------------------------
-Paris        2026-06-02   22.7°C 17.3°C 19.5°C   5.6mm  19.9km/h   96
-Lyon         2026-06-02   24.2°C 17.6°C 20.4°C  32.3mm  16.8km/h   99
-Marseille    2026-06-02   25.7°C 21.7°C 23.6°C   0.0mm  19.4km/h   51
-Bordeaux     2026-06-02   21.8°C 17.2°C 19.0°C   0.3mm  21.5km/h   80
-```
-
-**Total : 28 lignes** (4 villes × 7 jours) dans `data/meteo_villes_*.csv`
-
-### Commande de test
+**Total : 28 lignes** (4 villes × 7 jours)
 
 ```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
 airflow dags test tp2a_ingestion_meteo
 ```
 
 ---
 
-## 7. TP2B — Pipeline complet vers PostgreSQL
+## 12. TP2B — Pipeline complet vers PostgreSQL
 
 ### Objectif
 
-Construire un pipeline de production complet en ajoutant :
-- Le **chargement dans PostgreSQL** (avec gestion des doublons)
-- Une **table de suivi d'ingestion** pour la traçabilité
-- Un **DAG entièrement paramétrable** via les Variables Airflow (sans toucher au code)
+Chargement PostgreSQL, traçabilité complète, DAG **100% paramétrable** via Variables Airflow.
 
 ### Pipeline
 
@@ -376,62 +532,20 @@ Construire un pipeline de production complet en ajoutant :
 extraire_donnees_brutes ──→ transformer_donnees ──→ charger_postgresql ──→ ecrire_suivi_ingestion
 ```
 
-### Description des tâches
+### Variables Airflow
 
-| Tâche | Rôle |
-|-------|------|
-| `extraire_donnees_brutes` | Appelle l'API pour les villes définies dans la Variable `METEO_VILLES` |
-| `transformer_donnees` | Sélectionne et structure les champs pour correspondre à la table `meteo_journaliere` |
-| `charger_postgresql` | Insère les données avec `ON CONFLICT (ville, date) DO UPDATE` (upsert) |
-| `ecrire_suivi_ingestion` | Enregistre les métadonnées du run dans `suivi_ingestion` |
-
-### Pourquoi `ON CONFLICT DO UPDATE` ?
-
-Si on relance le DAG pour les mêmes dates, on ne veut pas de doublons dans la base.
-L'instruction `ON CONFLICT` d'PostgreSQL gère ce cas : si la paire `(ville, date)` existe déjà,
-la ligne est **mise à jour** au lieu de provoquer une erreur.
-
-```sql
-INSERT INTO meteo_journaliere (ville, date, temp_max_c, ...)
-VALUES (%(ville)s, %(date)s, %(temp_max_c)s, ...)
-ON CONFLICT (ville, date) DO UPDATE SET
-    temp_max_c = EXCLUDED.temp_max_c,
-    ...
-    insere_le  = NOW();
-```
-
-### Paramétrage via Variables Airflow
-
-Aucune valeur n'est codée en dur dans le DAG. Tout est lu depuis **Admin → Variables** dans l'UI.
-Cela permet de changer la liste des villes ou les paramètres de connexion **sans modifier le code**.
-
-| Variable | Valeur | Description |
-|----------|--------|-------------|
-| `METEO_VILLES` | JSON des 4 villes | Liste des villes à ingérer |
-| `METEO_PAST_DAYS` | `7` | Nombre de jours d'historique |
+| Variable | Valeur par défaut | Description |
+|----------|------------------|-------------|
+| `METEO_VILLES` | JSON des 4 villes | Liste des villes (modifiable sans toucher au code) |
+| `METEO_PAST_DAYS` | `7` | Jours d'historique |
 | `METEO_DB_HOST` | `localhost` | Hôte PostgreSQL |
-| `METEO_DB_PORT` | `5432` | Port PostgreSQL |
-| `METEO_DB_NAME` | `meteo_db` | Nom de la base de données |
-| `METEO_DB_USER` | `postgres` | Utilisateur PostgreSQL |
-| `METEO_DB_PASSWORD` | `postgres` | Mot de passe PostgreSQL |
+| `METEO_DB_NAME` | `meteo_db` | Nom de la base |
+| `METEO_DB_USER` | `postgres` | Utilisateur |
+| `METEO_DB_PASSWORD` | `postgres` | Mot de passe |
 
-```python
-# Le DAG lit toujours depuis les Variables — jamais de valeurs en dur
-def get_config():
-    return {
-        "villes":    json.loads(Variable.get("METEO_VILLES")),
-        "past_days": int(Variable.get("METEO_PAST_DAYS", default_var=7)),
-        "db": {
-            "host":     Variable.get("METEO_DB_HOST",     default_var="localhost"),
-            ...
-        },
-    }
-```
-
-### Schéma PostgreSQL (`sql/init_meteo_db.sql`)
+### Schéma PostgreSQL (`sql/migrations/001_init_tables.sql`)
 
 ```sql
--- Table principale : une ligne = un jour pour une ville
 CREATE TABLE IF NOT EXISTS meteo_journaliere (
     id               SERIAL PRIMARY KEY,
     ville            VARCHAR(100)  NOT NULL,
@@ -443,17 +557,16 @@ CREATE TABLE IF NOT EXISTS meteo_journaliere (
     vent_max_kmh     NUMERIC(6,1),
     code_meteo       INTEGER,
     insere_le        TIMESTAMP     DEFAULT NOW(),
-    UNIQUE (ville, date)              -- empêche les doublons, permet le ON CONFLICT
+    UNIQUE (ville, date)
 );
 
--- Table de suivi : une ligne = une exécution du DAG
 CREATE TABLE IF NOT EXISTS suivi_ingestion (
     id               SERIAL PRIMARY KEY,
     dag_id           VARCHAR(100)  NOT NULL,
     run_id           VARCHAR(200)  NOT NULL,
     ville            VARCHAR(100),
     nb_lignes        INTEGER       DEFAULT 0,
-    statut           VARCHAR(20)   NOT NULL,   -- 'success' ou 'failed'
+    statut           VARCHAR(20)   NOT NULL,
     message          TEXT,
     debut_ingestion  TIMESTAMP     NOT NULL,
     fin_ingestion    TIMESTAMP     DEFAULT NOW()
@@ -462,389 +575,144 @@ CREATE TABLE IF NOT EXISTS suivi_ingestion (
 
 ### Preuve de chargement
 
-**Table `meteo_journaliere` — 28 lignes insérées (4 villes × 7 jours) :**
 ```
- ville     | date       | temp_max_c | temp_min_c | precipitation_mm
------------+------------+------------+------------+------------------
- Bordeaux  | 2026-06-02 |       21.8 |       17.2 |              0.3
- Lyon      | 2026-06-02 |       24.2 |       17.6 |             32.3
- Marseille | 2026-06-02 |       25.7 |       21.7 |              0.0
- Paris     | 2026-06-02 |       22.7 |       17.3 |              5.6
- ...
+ ville     | date       | temp_max_c | temp_min_c
+-----------+------------+------------+------------
+ Bordeaux  | 2026-06-02 |       21.8 |       17.2
+ Lyon      | 2026-06-02 |       24.2 |       17.6
+ Marseille | 2026-06-02 |       25.7 |       21.7
+ Paris     | 2026-06-02 |       22.7 |       17.3
 (28 rows)
 ```
 
-**Table `suivi_ingestion` :**
-```
- id |          dag_id          |              ville               | nb_lignes | statut
-----+--------------------------+----------------------------------+-----------+---------
-  1 | tp2b_pipeline_postgresql | Paris, Lyon, Marseille, Bordeaux |        28 | success
-```
-
-### Initialisation PostgreSQL
-
 ```bash
-# Créer la base de données
-psql -U postgres -c "CREATE DATABASE meteo_db;"
-
-# Créer les tables
-psql -U postgres -d meteo_db -f sql/init_meteo_db.sql
-
-# Définir les Variables Airflow
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
-
-airflow variables set METEO_VILLES '[{"nom":"Paris","latitude":48.8566,"longitude":2.3522},{"nom":"Lyon","latitude":45.7640,"longitude":4.8357},{"nom":"Marseille","latitude":43.2965,"longitude":5.3698},{"nom":"Bordeaux","latitude":44.8378,"longitude":-0.5792}]'
-airflow variables set METEO_PAST_DAYS 7
-airflow variables set METEO_DB_HOST localhost
-airflow variables set METEO_DB_PORT 5432
-airflow variables set METEO_DB_NAME meteo_db
-airflow variables set METEO_DB_USER postgres
-airflow variables set METEO_DB_PASSWORD postgres
-```
-
-### Commande de test
-
-```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
 airflow dags test tp2b_pipeline_postgresql
 ```
 
 ---
 
-## 8. TP3 — Data Lake Medallion
+## 13. TP3 — Data Lake Medallion
 
-### Objectif
-
-Implémenter une **architecture Data Lake Medallion** complète avec trois couches :
-- **Bronze** : conservation des données brutes telles que reçues de l'API
-- **Silver** : données transformées et structurées
-- **Gold** : données optimisées pour l'analyse dans PostgreSQL
-
-Chaque couche a un rôle distinct. Les données sont traçables de bout en bout.
-
-### Qu'est-ce que l'architecture Medallion ?
-
-L'architecture Medallion (ou Delta Lake) est un standard pour organiser un Data Lake.
-Elle résout un problème fondamental : comment stocker des données brutes tout en ayant
-des données propres pour l'analyse, sans jamais perdre les données d'origine ?
+### Architecture
 
 ```
-API
- │
- ▼
-BRONZE ── JSON brut, tel que reçu, jamais modifié
- │           └─ Intérêt : rejouer le pipeline sans rappeler l'API, audit complet
- ▼
-SILVER ── CSV transformé, champs sélectionnés, types normalisés
- │           └─ Intérêt : données utilisables par d'autres outils sans passer par PostgreSQL
- ▼
-GOLD ──── Table PostgreSQL, indexée, optimisée pour les requêtes et les dashboards
-             └─ Intérêt : performances maximales pour l'analyse
+API Open-Meteo
+      │
+      ▼
+  BRONZE — MinIO meteo-bronze/YYYY-MM-DD/<ville>.json  ← JSON brut, jamais modifié
+      │
+      ▼
+  SILVER — MinIO meteo-silver/YYYY-MM-DD/meteo_villes.csv  ← CSV transformé
+      │
+      ▼
+  GOLD   — PostgreSQL meteo_journaliere  ← prêt pour l'analyse
+      │
+      ▼
+  suivi_ingestion  ← traçabilité complète
 ```
 
-### Rôle de MinIO
-
-**MinIO** est un système de stockage objet compatible avec l'API Amazon S3.
-Il joue le rôle d'un "Google Drive" pour les pipelines de données :
-- Stocke des fichiers (JSON, CSV, Parquet…) organisés en **buckets** (compartiments)
-- Accessible depuis Python avec la bibliothèque `boto3`
-- Les couches Bronze et Silver y sont stockées sous forme de fichiers horodatés
-
-```
-MinIO
-├── meteo-bronze/                   ← bucket Bronze
-│   └── 2026-06-09/
-│       ├── paris.json              ← JSON brut de l'API pour Paris
-│       ├── lyon.json
-│       ├── marseille.json
-│       └── bordeaux.json
-└── meteo-silver/                   ← bucket Silver
-    └── 2026-06-09/
-        └── meteo_villes.csv        ← CSV transformé (4 villes, 28 lignes)
-```
-
-### Pipeline
-
-```
-extraire_api ──→ stocker_bronze ──→ transformer_silver ──→ charger_gold ──→ ecrire_suivi
-```
-
-### Description des tâches
+### Tâches
 
 | Tâche | Couche | Rôle |
 |-------|--------|------|
-| `extraire_api` | — | Appelle l'API Open-Meteo pour les 4 villes, pousse le JSON brut en XCom |
-| `stocker_bronze` | **BRONZE** | Écrit le JSON brut de chaque ville dans MinIO `meteo-bronze/YYYY-MM-DD/<ville>.json` |
-| `transformer_silver` | **SILVER** | Transforme le JSON en CSV structuré, écrit dans MinIO `meteo-silver/YYYY-MM-DD/meteo_villes.csv` |
-| `charger_gold` | **GOLD** | Lit les données transformées depuis XCom, insère dans PostgreSQL `meteo_journaliere` |
-| `ecrire_suivi` | — | Enregistre les métadonnées du run (chemins Bronze, Silver, nombre de lignes Gold) |
-
-### Connexion à MinIO depuis Python
-
-```python
-import boto3
-from botocore.client import Config
-
-def get_s3_client(config):
-    return boto3.client(
-        "s3",
-        endpoint_url=config["minio"]["endpoint"],       # http://localhost:9000
-        aws_access_key_id=config["minio"]["access_key"],
-        aws_secret_access_key=config["minio"]["secret_key"],
-        config=Config(signature_version="s3v4"),        # requis pour MinIO
-    )
-
-# Écrire un fichier dans MinIO
-s3.put_object(
-    Bucket="meteo-bronze",
-    Key="2026-06-09/paris.json",
-    Body=json.dumps(donnees).encode("utf-8"),
-    ContentType="application/json",
-)
-```
-
-### Variables Airflow pour MinIO
-
-| Variable | Valeur | Description |
-|----------|--------|-------------|
-| `MINIO_ENDPOINT` | `http://localhost:9000` | URL d'accès à MinIO |
-| `MINIO_ACCESS_KEY` | `minioadmin` | Identifiant MinIO |
-| `MINIO_SECRET_KEY` | `minioadmin` | Mot de passe MinIO |
-| `MINIO_BUCKET_BRONZE` | `meteo-bronze` | Bucket de la couche Bronze |
-| `MINIO_BUCKET_SILVER` | `meteo-silver` | Bucket de la couche Silver |
-
-### Mise en place de MinIO
-
-**Lancer MinIO via Docker :**
-```bash
-docker run -d \
-  --name minio \
-  -p 9000:9000 \
-  -p 9001:9001 \
-  -e MINIO_ROOT_USER=minioadmin \
-  -e MINIO_ROOT_PASSWORD=minioadmin \
-  -v minio_data:/data \
-  minio/minio server /data --console-address ":9001"
-```
-
-Console web MinIO : **http://localhost:9001** — identifiants : `minioadmin` / `minioadmin`
-
-**Créer les buckets :**
-```bash
-source airflow_venv/bin/activate
-python3 - <<'EOF'
-import boto3
-from botocore.client import Config
-s3 = boto3.client("s3", endpoint_url="http://localhost:9000",
-    aws_access_key_id="minioadmin", aws_secret_access_key="minioadmin",
-    config=Config(signature_version="s3v4"))
-for b in ["meteo-bronze", "meteo-silver"]:
-    s3.create_bucket(Bucket=b)
-    print(f"Bucket créé : {b}")
-EOF
-```
-
-**Définir les Variables Airflow MinIO :**
-```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
-airflow variables set MINIO_ENDPOINT http://localhost:9000
-airflow variables set MINIO_ACCESS_KEY minioadmin
-airflow variables set MINIO_SECRET_KEY minioadmin
-airflow variables set MINIO_BUCKET_BRONZE meteo-bronze
-airflow variables set MINIO_BUCKET_SILVER meteo-silver
-```
+| `extraire_api` | — | Appelle l'API pour les 4 villes |
+| `stocker_bronze` | BRONZE | JSON brut → MinIO `meteo-bronze` |
+| `transformer_silver` | SILVER | CSV structuré → MinIO `meteo-silver` |
+| `charger_gold` | GOLD | Upsert → PostgreSQL |
+| `ecrire_suivi` | — | Audit : chemins Bronze + Silver + nb lignes |
 
 ### Preuve d'exécution
 
-**Fichiers Bronze et Silver dans MinIO après un run :**
 ```
-meteo-bronze/2026-06-09/bordeaux.json     1302 octets  ← JSON brut de l'API
-meteo-bronze/2026-06-09/lyon.json         1308 octets
-meteo-bronze/2026-06-09/marseille.json    1298 octets
-meteo-bronze/2026-06-09/paris.json        1303 octets
-
-meteo-silver/2026-06-09/meteo_villes.csv  1375 octets  ← CSV transformé, 28 lignes
+meteo-bronze/2026-06-09/paris.json       1303 octets
+meteo-bronze/2026-06-09/lyon.json        1308 octets
+meteo-bronze/2026-06-09/marseille.json   1298 octets
+meteo-bronze/2026-06-09/bordeaux.json    1302 octets
+meteo-silver/2026-06-09/meteo_villes.csv 1375 octets  ← 28 lignes
+Gold PostgreSQL : 28 lignes (4 villes × 7 jours)
 ```
-
-**Gold — PostgreSQL `meteo_journaliere` :**
-```
-  ville    | nb_jours
------------+---------
- Bordeaux  |       7
- Lyon      |       7
- Marseille |       7
- Paris     |       7
-(4 rows, total : 28 lignes)
-```
-
-**Suivi d'ingestion :**
-```
- id |   dag_id    | nb_lignes | statut  | message
-----+-------------+-----------+---------+-----------------------------------------
-  3 | tp3_data_lake |       28 | success | Bronze: 4 fichiers JSON | Silver: 1 CSV | Gold: 28 lignes
-```
-
-### Commande de test
 
 ```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
 airflow dags test tp3_data_lake
 ```
 
 ---
 
-## 9. Installation complète
+## 14. Installation locale
 
-### Prérequis système
+### Prérequis
 
-- macOS ou Linux
-- Python 3.12+
-- PostgreSQL 14+ installé et démarré (pour TP2B et TP3)
-- Docker (pour MinIO, TP3 uniquement)
-- Connexion internet (appels API Open-Meteo)
+- Python 3.12+, Docker, PostgreSQL 14+
 
-### Installation pas à pas
+### Option A — Docker (recommandé)
 
 ```bash
-# 1. Cloner le dépôt
+git clone https://github.com/MousBak/Premier-Dag-Airflow.git
+cd Premier-Dag-Airflow
+make docker-up
+```
+
+Tout est configuré automatiquement. Accès sur http://localhost:8080.
+
+### Option B — Installation locale (venv)
+
+```bash
 git clone https://github.com/MousBak/Premier-Dag-Airflow.git
 cd Premier-Dag-Airflow
 
-# 2. Créer l'environnement virtuel Python
-python3 -m venv airflow_venv
-source airflow_venv/bin/activate
+# Installation complète en une commande
+make setup
 
-# 3. Installer Apache Airflow 2.9.1 avec ses contraintes de dépendances
-CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-2.9.1/constraints-3.12.txt"
-pip install "apache-airflow==2.9.1" --constraint "${CONSTRAINT_URL}"
+# Démarrer Airflow (port 8081)
+make run
 
-# 4. Installer les bibliothèques supplémentaires
-pip install certifi psycopg2-binary boto3
-
-# 5. Initialiser la base de données Airflow (SQLite par défaut)
-export AIRFLOW_HOME=$(pwd)
-airflow db migrate
-
-# 6. Créer un utilisateur admin pour l'interface web
-airflow users create \
-  --username admin \
-  --password admin \
-  --firstname Admin \
-  --lastname User \
-  --role Admin \
-  --email admin@example.com
+# MinIO (Docker requis)
+make minio
+make buckets
 ```
 
-### Démarrer Airflow
+### Charger les Variables Airflow
 
 ```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
-
-# Terminal 1 — scheduler
-airflow scheduler
-
-# Terminal 2 — interface web
-airflow webserver --port 8081
-```
-
-Interface web : **http://localhost:8081** — identifiants : `admin` / `admin`
-
-### Variables Airflow à créer (TP2B et TP3)
-
-```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
-
-# Variables communes TP2B et TP3
-airflow variables set METEO_VILLES '[{"nom":"Paris","latitude":48.8566,"longitude":2.3522},{"nom":"Lyon","latitude":45.7640,"longitude":4.8357},{"nom":"Marseille","latitude":43.2965,"longitude":5.3698},{"nom":"Bordeaux","latitude":44.8378,"longitude":-0.5792}]'
-airflow variables set METEO_PAST_DAYS 7
-airflow variables set METEO_DB_HOST localhost
-airflow variables set METEO_DB_PORT 5432
-airflow variables set METEO_DB_NAME meteo_db
-airflow variables set METEO_DB_USER postgres
-airflow variables set METEO_DB_PASSWORD postgres
-
-# Variables MinIO (TP3 uniquement)
-airflow variables set MINIO_ENDPOINT http://localhost:9000
-airflow variables set MINIO_ACCESS_KEY minioadmin
-airflow variables set MINIO_SECRET_KEY minioadmin
-airflow variables set MINIO_BUCKET_BRONZE meteo-bronze
-airflow variables set MINIO_BUCKET_SILVER meteo-silver
+make variables
 ```
 
 ---
 
-## 10. Guide de vérification
-
-### Tester tous les DAGs
+## 15. Guide de vérification
 
 ```bash
-export AIRFLOW_HOME=$(pwd)
-source airflow_venv/bin/activate
+# Lancer tous les tests
+make test
 
+# Tester chaque DAG individuellement
+export AIRFLOW_HOME=$(pwd) && source airflow_venv/bin/activate
 airflow dags test tp2_pipeline_etl_simple
 airflow dags test tp2a_ingestion_meteo
 airflow dags test tp2b_pipeline_postgresql
 airflow dags test tp3_data_lake
-```
+airflow dags test weather_data_pipeline
 
-Chaque commande doit se terminer par `state=success`.
+# Vérifier PostgreSQL
+psql -U postgres -d meteo_db -c "SELECT ville, COUNT(*) FROM meteo_journaliere GROUP BY ville;"
+psql -U postgres -d meteo_db -c "SELECT dag_id, nb_lignes, statut FROM suivi_ingestion ORDER BY fin_ingestion DESC;"
 
-### Vérifier les fichiers CSV (TP2 et TP2A)
+# Vérifier MinIO
+python3 scripts/create_buckets.py   # liste les buckets existants
 
-```bash
-ls data/
-# meteo_paris_*.csv      → produit par TP2
-# meteo_villes_*.csv     → produit par TP2A
-```
-
-### Vérifier PostgreSQL (TP2B et TP3)
-
-```bash
-# Nombre de lignes dans la table principale
-psql -U postgres -d meteo_db -c "SELECT COUNT(*) FROM meteo_journaliere;"
-# Résultat attendu : 28
-
-# Répartition par ville
-psql -U postgres -d meteo_db -c \
-  "SELECT ville, COUNT(*) AS nb_jours FROM meteo_journaliere GROUP BY ville ORDER BY ville;"
-
-# Historique des ingestions
-psql -U postgres -d meteo_db -c \
-  "SELECT id, dag_id, nb_lignes, statut, message FROM suivi_ingestion ORDER BY fin_ingestion DESC;"
-```
-
-### Vérifier MinIO (TP3)
-
-```bash
-source airflow_venv/bin/activate
-python3 - <<'EOF'
-import boto3
-from botocore.client import Config
-s3 = boto3.client("s3", endpoint_url="http://localhost:9000",
-    aws_access_key_id="minioadmin", aws_secret_access_key="minioadmin",
-    config=Config(signature_version="s3v4"))
-for bucket in ["meteo-bronze", "meteo-silver"]:
-    print(f"\n=== Bucket : {bucket} ===")
-    for obj in s3.list_objects_v2(Bucket=bucket).get("Contents", []):
-        print(f"  {obj['Key']}  ({obj['Size']} octets)")
-EOF
+# Lancer dbt
+make dbt-run && make dbt-test
 ```
 
 ---
 
-## 11. Auteur
+## 16. Auteur
 
 | | |
 |--|--|
 | **Nom** | Bakayoko Moussa |
-| **Cours** | Orchestration de pipelines de données — Apache Airflow |
-| **Outils** | Apache Airflow 2.9.1 · Python 3.12 · PostgreSQL 14 · MinIO · Docker |
-| **API** | [Open-Meteo](https://open-meteo.com/) — données météo gratuites, sans clé d'authentification |
+| **Projet** | Weather Data Platform — pipeline data engineering complet |
+| **Stack** | Airflow 2.9.1 · Python 3.12 · PostgreSQL 14 · MinIO · dbt · Docker · GitHub Actions |
+| **API** | [Open-Meteo](https://open-meteo.com/) — données météo gratuites, sans clé |
 | **Dépôt** | [github.com/MousBak/Premier-Dag-Airflow](https://github.com/MousBak/Premier-Dag-Airflow) |
 | **Date** | Juin 2026 |
