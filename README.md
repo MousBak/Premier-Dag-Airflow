@@ -1,6 +1,6 @@
 # Travaux Pratiques Airflow — Bakayoko Moussa
 
-> **Outil** : Apache Airflow 2.9.1 · **API** : Open-Meteo · **Langage** : Python 3.12
+> **Outil** : Apache Airflow 2.9.1 · **API** : Open-Meteo · **BDD** : PostgreSQL 14 · **Langage** : Python 3.12
 
 ---
 
@@ -20,8 +20,11 @@ C'est un graphe orienté sans cycle qui représente un workflow : un ensemble de
 ```
 Airflow/
 ├── dags/
-│   ├── tp2_premier_dag.py        # TP2  — Pipeline ETL Paris (1 ville, données horaires)
-│   └── tp2a_ingestion_meteo.py   # TP2A — Ingestion multi-villes (4 villes, données journalières)
+│   ├── tp2_premier_dag.py        # TP2  — Pipeline ETL Paris (1 ville, CSV)
+│   ├── tp2a_ingestion_meteo.py   # TP2A — Ingestion multi-villes (4 villes, CSV)
+│   └── tp2b_pipeline_postgresql.py # TP2B — Pipeline complet vers PostgreSQL
+├── sql/
+│   └── init_meteo_db.sql         # Script SQL de création des tables
 ├── data/
 │   ├── meteo_paris_*.csv         # Sorties TP2
 │   └── meteo_villes_*.csv        # Sorties TP2A
@@ -198,6 +201,139 @@ airflow dags test tp2a_ingestion_meteo
 
 ---
 
+# TP2B — Fin d'après-midi : Pipeline complet API → transformation → PostgreSQL
+
+## Objectif
+
+Construire un pipeline orchestré complet en réutilisant les acquis des TP précédents :
+récupération API, transformation, **chargement PostgreSQL**, **traçabilité** et **paramétrage**.
+
+## DAG : `tp2b_pipeline_postgresql`
+
+```
+extraire_donnees_brutes ──→ transformer_donnees ──→ charger_postgresql ──→ ecrire_suivi_ingestion
+```
+
+| Tâche | Rôle |
+|-------|------|
+| `extraire_donnees_brutes` | Appelle l'API Open-Meteo pour les villes définies dans les Variables Airflow |
+| `transformer_donnees` | Sélectionne et structure les champs pour la table PostgreSQL |
+| `charger_postgresql` | Insère les données dans `meteo_journaliere` avec `ON CONFLICT DO UPDATE` |
+| `ecrire_suivi_ingestion` | Trace chaque exécution dans `suivi_ingestion` (traçabilité) |
+
+## DAG paramétrable — Variables Airflow
+
+Aucune valeur codée en dur. Tout est lu depuis **Admin → Variables** dans l'UI :
+
+| Variable | Valeur par défaut | Description |
+|----------|-------------------|-------------|
+| `METEO_VILLES` | JSON des 4 villes | Liste des villes à ingérer |
+| `METEO_PAST_DAYS` | `7` | Nombre de jours historiques |
+| `METEO_DB_HOST` | `localhost` | Hôte PostgreSQL |
+| `METEO_DB_PORT` | `5432` | Port PostgreSQL |
+| `METEO_DB_NAME` | `meteo_db` | Nom de la base |
+| `METEO_DB_USER` | `postgres` | Utilisateur PostgreSQL |
+| `METEO_DB_PASSWORD` | `postgres` | Mot de passe |
+
+Pour changer la liste des villes sans toucher au code :
+```
+Admin → Variables → METEO_VILLES → éditer le JSON
+```
+
+## Script SQL — `sql/init_meteo_db.sql`
+
+```sql
+-- Table principale : données météo journalières
+CREATE TABLE IF NOT EXISTS meteo_journaliere (
+    id               SERIAL PRIMARY KEY,
+    ville            VARCHAR(100)  NOT NULL,
+    date             DATE          NOT NULL,
+    temp_max_c       NUMERIC(5,1),
+    temp_min_c       NUMERIC(5,1),
+    temp_moyenne_c   NUMERIC(5,1),
+    precipitation_mm NUMERIC(6,1),
+    vent_max_kmh     NUMERIC(6,1),
+    code_meteo       INTEGER,
+    insere_le        TIMESTAMP     DEFAULT NOW(),
+    UNIQUE (ville, date)
+);
+
+-- Table de suivi : une ligne par exécution du DAG
+CREATE TABLE IF NOT EXISTS suivi_ingestion (
+    id               SERIAL PRIMARY KEY,
+    dag_id           VARCHAR(100)  NOT NULL,
+    run_id           VARCHAR(200)  NOT NULL,
+    ville            VARCHAR(100),
+    nb_lignes        INTEGER       DEFAULT 0,
+    statut           VARCHAR(20)   NOT NULL,
+    message          TEXT,
+    debut_ingestion  TIMESTAMP     NOT NULL,
+    fin_ingestion    TIMESTAMP     DEFAULT NOW()
+);
+```
+
+## Preuve de chargement PostgreSQL
+
+### Table `meteo_journaliere` — 28 lignes insérées
+
+```
+  ville   |    date    | temp_max_c | temp_min_c | precipitation_mm
+----------+------------+------------+------------+------------------
+ Bordeaux | 2026-06-02 |       21.8 |       17.2 |              0.3
+ Bordeaux | 2026-06-03 |       21.8 |       15.1 |              0.0
+ Lyon     | 2026-06-02 |       24.2 |       17.6 |             32.3
+ Lyon     | 2026-06-04 |       19.5 |       14.5 |             18.4
+ Marseille| 2026-06-02 |       25.7 |       21.7 |              0.0
+ Paris    | 2026-06-02 |       22.7 |       17.3 |              5.6
+ ...
+(28 rows)
+```
+
+### Table `suivi_ingestion` — traçabilité
+
+```
+ id |          dag_id          |              ville               | nb_lignes | statut
+----+--------------------------+----------------------------------+-----------+---------
+  1 | tp2b_pipeline_postgresql | Paris, Lyon, Marseille, Bordeaux |        28 | success
+```
+
+## Initialiser la base de données
+
+```bash
+# Créer la base
+psql -U postgres -c "CREATE DATABASE meteo_db;"
+
+# Créer les tables
+psql -U postgres -d meteo_db -f sql/init_meteo_db.sql
+```
+
+## Créer les Variables Airflow
+
+```bash
+export AIRFLOW_HOME=$(pwd)
+source airflow_venv/bin/activate
+
+airflow variables set METEO_VILLES '[{"nom":"Paris","latitude":48.8566,"longitude":2.3522},{"nom":"Lyon","latitude":45.7640,"longitude":4.8357},{"nom":"Marseille","latitude":43.2965,"longitude":5.3698},{"nom":"Bordeaux","latitude":44.8378,"longitude":-0.5792}]'
+airflow variables set METEO_PAST_DAYS 7
+airflow variables set METEO_DB_HOST localhost
+airflow variables set METEO_DB_PORT 5432
+airflow variables set METEO_DB_NAME meteo_db
+airflow variables set METEO_DB_USER postgres
+airflow variables set METEO_DB_PASSWORD postgres
+```
+
+## Lancer ce DAG
+
+```bash
+export AIRFLOW_HOME=$(pwd)
+source airflow_venv/bin/activate
+airflow dags test tp2b_pipeline_postgresql
+```
+
+---
+
+---
+
 # Installation complète
 
 ## Prérequis
@@ -205,6 +341,10 @@ airflow dags test tp2a_ingestion_meteo
 - Python 3.12+
 - macOS / Linux
 - Connexion internet (appels API Open-Meteo)
+
+## Prérequis supplémentaires pour TP2B
+
+- PostgreSQL 14+ installé et démarré
 
 ## Étapes
 
@@ -216,7 +356,7 @@ source airflow_venv/bin/activate
 # 2. Installer Airflow + dépendances
 CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-2.9.1/constraints-3.12.txt"
 pip install "apache-airflow==2.9.1" --constraint "${CONSTRAINT_URL}"
-pip install certifi
+pip install certifi psycopg2-binary
 
 # 3. Initialiser la base de données
 export AIRFLOW_HOME=$(pwd)
@@ -251,6 +391,9 @@ Interface web : **http://localhost:8081** — identifiants : `admin` / `admin`
 | **`retries`** | Tentatives automatiques en cas d'échec |
 | **`schedule_interval=None`** | Déclenchement manuel uniquement |
 | **`catchup=False`** | Ne rattrape pas les runs manqués au démarrage |
+| **Variable Airflow** | Valeur configurable depuis l'UI (Admin → Variables) sans toucher au code |
+| **`ON CONFLICT DO UPDATE`** | Upsert SQL : insère ou met à jour si la ligne existe déjà |
+| **Table de suivi** | Table qui enregistre chaque exécution du DAG pour la traçabilité |
 
 ## Couleurs de la Grid Airflow
 
@@ -267,8 +410,10 @@ Interface web : **http://localhost:8081** — identifiants : `admin` / `admin`
 ## Auteur
 
 - **Nom** : Bakayoko Moussa
-- **TP2** : Fin d'après-midi — Premier DAG Airflow
+- **TP2**  : Fin d'après-midi — Premier DAG Airflow
 - **TP2A** : Fin de matinée — Ingestion API météo multi-villes
+- **TP2B** : Fin d'après-midi — Pipeline complet vers PostgreSQL
 - **Outil** : Apache Airflow 2.9.1
 - **API** : Open-Meteo (open-meteo.com)
+- **BDD** : PostgreSQL 14
 - **Date** : Juin 2026
