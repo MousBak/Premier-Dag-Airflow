@@ -1,13 +1,18 @@
-# Travaux Pratiques Airflow — Bakayoko Moussa
+# Weather Data Platform — Bakayoko Moussa
 
+[![CI](https://github.com/MousBak/Premier-Dag-Airflow/actions/workflows/ci.yml/badge.svg)](https://github.com/MousBak/Premier-Dag-Airflow/actions/workflows/ci.yml)
+[![dbt Validate](https://github.com/MousBak/Premier-Dag-Airflow/actions/workflows/dbt-validate.yml/badge.svg)](https://github.com/MousBak/Premier-Dag-Airflow/actions/workflows/dbt-validate.yml)
 ![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-2.9.1-017CEE?logo=apacheairflow&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14-4169E1?logo=postgresql&logoColor=white)
-![MinIO](https://img.shields.io/badge/MinIO-Data%20Lake-C72E49?logo=minio&logoColor=white)
-![Status](https://img.shields.io/badge/Tous%20les%20TPs-✅%20success-brightgreen)
+![MinIO](https://img.shields.io/badge/MinIO-S3%20Compatible-C72E49?logo=minio&logoColor=white)
+![dbt](https://img.shields.io/badge/dbt-1.x-FF694B?logo=dbt&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-73%20passed-brightgreen)
 
-> Pipeline ETL orchestré avec Apache Airflow, données météo temps réel via l'API Open-Meteo,
-> stockage objet MinIO et base de données PostgreSQL.
+> Production-grade weather data pipeline — Airflow orchestration, Medallion architecture
+> (Bronze/Silver/Gold), Dynamic Task Mapping, dbt analytical models, full CI/CD.
+
+> **Données** : API Open-Meteo · **Stockage** : MinIO (S3) · **Base de données** : PostgreSQL · **Transformations** : dbt
 
 ---
 
@@ -71,25 +76,73 @@ fournissant des données journalières et horaires pour n'importe quel point GPS
 ## 3. Structure du projet
 
 ```
-Airflow/
+weather-data-platform/
 │
-├── dags/                               # Tous les DAGs Airflow
-│   ├── tp2_premier_dag.py              # TP2  — 3 tâches, Paris, CSV
-│   ├── tp2a_ingestion_meteo.py         # TP2A — 4 villes, séparation E/T, CSV
-│   ├── tp2b_pipeline_postgresql.py     # TP2B — PostgreSQL, Variables, suivi
-│   └── tp3_data_lake.py               # TP3  — Medallion : Bronze → Silver → Gold
+├── .github/workflows/
+│   ├── ci.yml                         # Lint + tests à chaque push (GitHub Actions)
+│   └── dbt-validate.yml               # Validation dbt compile à chaque push sur dbt/
 │
-├── sql/
-│   └── init_meteo_db.sql              # Script SQL de création des tables PostgreSQL
+├── dags/
+│   ├── common/
+│   │   └── config.py                  # Config partagée — get_config(), get_s3_client(), json_to_rows()
+│   ├── ingestion/
+│   │   ├── weather_pipeline_dag.py    # DAG production — TaskFlow + Dynamic Task Mapping
+│   │   ├── tp2_premier_dag.py         # TP2  — premier DAG, 3 tâches, CSV
+│   │   ├── tp2a_ingestion_meteo.py    # TP2A — 4 villes, séparation E/T
+│   │   ├── tp2b_pipeline_postgresql.py# TP2B — PostgreSQL, Variables, suivi
+│   │   └── tp3_data_lake.py           # TP3  — Medallion Bronze → Silver → Gold
+│   └── transformation/                # (réservé pour les DAGs dbt dédiés)
 │
-├── data/                              # Fichiers CSV générés par TP2 et TP2A
-│   ├── meteo_paris_*.csv              # Sorties TP2
-│   └── meteo_villes_*.csv            # Sorties TP2A
+├── dbt/
+│   ├── models/
+│   │   ├── staging/
+│   │   │   ├── sources.yml            # Déclaration de la source meteo_journaliere
+│   │   │   ├── stg_weather.sql        # Vue propre — colonnes EN + weather_description
+│   │   │   └── schema.yml             # Tests des colonnes staging
+│   │   └── marts/
+│   │       ├── daily_weather.sql      # Table enrichie avec catégories pluie/vent
+│   │       ├── city_monthly_stats.sql # Agrégats mensuels par ville
+│   │       └── schema.yml
+│   ├── tests/
+│   │   └── assert_temp_max_greater_than_min.sql
+│   ├── dbt_project.yml
+│   ├── profiles.yml                   # Connexions dev + docker
+│   └── packages.yml
 │
-├── logs/                              # Logs Airflow (générés automatiquement)
-├── plugins/                           # Plugins personnalisés (vide pour ces TPs)
-├── airflow_venv/                      # Environnement Python virtuel (non versionné)
-└── README.md                          # Ce fichier
+├── tests/
+│   ├── unit/
+│   │   └── test_transformations.py    # 19 tests — logique pure, sans I/O
+│   ├── integration/
+│   │   └── test_pipeline.py           # 10 tests — API + MinIO + PG mockés
+│   └── dags/
+│       └── test_dag_integrity.py      # 44 tests — import, structure, config
+│
+├── docker/
+│   ├── docker-compose.yml             # Stack complète : Airflow + PG + MinIO + Redis
+│   ├── Dockerfile                     # Image Airflow custom avec nos dépendances
+│   └── init-db.sh                     # Crée meteo_db au démarrage PostgreSQL
+│
+├── sql/migrations/
+│   ├── 001_init_tables.sql            # Création meteo_journaliere + suivi_ingestion
+│   └── 002_add_indexes.sql            # Index de performance
+│
+├── config/
+│   ├── variables.json                 # Template des Variables Airflow
+│   └── connections.json               # Template des Connections Airflow
+│
+├── scripts/
+│   ├── setup.sh                       # Installation en une commande
+│   └── create_buckets.py              # Création des buckets MinIO
+│
+├── docs/
+│   ├── architecture.md                # Schéma Medallion + modèle de données
+│   └── adr/001_why_minio.md           # Architecture Decision Record
+│
+├── .env.example                       # Template credentials
+├── .gitignore
+├── Makefile                           # make setup / run / test / dbt-run / docker-up
+├── pyproject.toml                     # Dépendances Python déclarées
+└── CHANGELOG.md
 ```
 
 ---

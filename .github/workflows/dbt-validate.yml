@@ -1,0 +1,65 @@
+name: dbt Validate
+
+on:
+  push:
+    paths:
+      - "dbt/**"
+    branches: ["main", "develop"]
+  pull_request:
+    paths:
+      - "dbt/**"
+    branches: ["main"]
+
+jobs:
+
+  # ── dbt compile ──────────────────────────────────────────────────────────
+  # Compiles all dbt models without a database connection.
+  # Catches SQL syntax errors and missing ref() / source() references.
+  dbt-compile:
+    name: dbt compile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-dbt-${{ hashFiles('dbt/packages.yml') }}
+          restore-keys: pip-dbt-
+
+      - name: Install dbt-postgres
+        run: pip install dbt-postgres --quiet
+
+      - name: dbt compile (syntax check, no DB needed)
+        run: |
+          cd dbt
+          dbt compile \
+            --profiles-dir . \
+            --project-dir . \
+            --profile weather_data_platform \
+            --target dev
+        env:
+          METEO_DB_HOST:     localhost
+          METEO_DB_PORT:     "5432"
+          METEO_DB_NAME:     meteo_db
+          METEO_DB_USER:     postgres
+          METEO_DB_PASSWORD: postgres
+
+      - name: Verify expected models exist
+        run: |
+          cd dbt
+          for model in stg_weather daily_weather city_monthly_stats; do
+            if ! find models -name "${model}.sql" | grep -q .; then
+              echo "Model ${model}.sql not found"
+              exit 1
+            fi
+            echo "Found: ${model}.sql"
+          done

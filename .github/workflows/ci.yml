@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+# Cancel in-flight runs when a newer commit is pushed to the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── Job 1: Lint ─────────────────────────────────────────────────────────
+  # Fast check — runs in < 30s, blocks the pipeline early on style errors
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 dags/ tests/ --max-line-length=100 --statistics
+
+  # ── Job 2: Unit + Integration tests ────────────────────────────────────
+  # Runs without Airflow — fast, no DB required
+  unit-tests:
+    name: Unit & Integration tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-unit-${{ hashFiles('pyproject.toml') }}
+          restore-keys: pip-unit-
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-mock boto3
+
+      - name: Run unit + integration tests
+        run: |
+          pytest tests/unit/ tests/integration/ -v --tb=short
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+  # ── Job 3: DAG integrity tests ──────────────────────────────────────────
+  # Requires Airflow — verifies all DAGs import cleanly and meet requirements
+  dag-integrity:
+    name: DAG integrity (Airflow ${{ matrix.airflow-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        airflow-version: ["2.9.1"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache Airflow pip install
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-airflow-${{ matrix.airflow-version }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: pip-airflow-${{ matrix.airflow-version }}-
+
+      - name: Install Airflow and dependencies
+        run: |
+          CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${{ matrix.airflow-version }}/constraints-3.12.txt"
+          pip install "apache-airflow==${{ matrix.airflow-version }}" \
+            --constraint "${CONSTRAINT_URL}" \
+            --quiet
+          pip install certifi psycopg2-binary boto3 pandas pyarrow pytest pytest-mock --quiet
+
+      - name: Initialize Airflow metadata DB
+        run: airflow db migrate
+        env:
+          AIRFLOW_HOME: ${{ github.workspace }}
+          AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:///${{ github.workspace }}/airflow.db"
+
+      - name: Run DAG integrity tests
+        run: |
+          pytest tests/dags/ -v --tb=short
+        env:
+          AIRFLOW_HOME: ${{ github.workspace }}
+          AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "sqlite:///${{ github.workspace }}/airflow.db"
+          PYTHONPATH: ${{ github.workspace }}
+
+  # ── Job 4: Full test suite summary ─────────────────────────────────────
+  # Required status check — passes only when all jobs pass
+  all-tests-pass:
+    name: All tests passed
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, dag-integrity]
+    if: always()
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.lint.result }}"          != "success" ]] || \
+             [[ "${{ needs.unit-tests.result }}"    != "success" ]] || \
+             [[ "${{ needs.dag-integrity.result }}" != "success" ]]; then
+            echo "One or more jobs failed:"
+            echo "  lint:          ${{ needs.lint.result }}"
+            echo "  unit-tests:    ${{ needs.unit-tests.result }}"
+            echo "  dag-integrity: ${{ needs.dag-integrity.result }}"
+            exit 1
+          fi
+          echo "All checks passed."
